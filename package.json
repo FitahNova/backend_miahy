@@ -2,15 +2,48 @@
   "name": "miahy",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/index.ts",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "tsx watch src/index.ts",
+    "build": "prisma generate --config prisma7.config.ts",
+    "start": "tsx src/index.ts",
+    "migrer": "prisma migrate deploy --config prisma7.config.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
-    "express": "^5.2.1"
+    "@neondatabase/serverless": "^1.2.0",
+    "@prisma/adapter-neon": "^7.10.0",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^10.1.0",
+    "pg": "^8.23.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^26.6.3",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
+    "prisma": "^7.10.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   }
 }
