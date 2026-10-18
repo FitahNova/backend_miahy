@@ -3,6 +3,7 @@ import { Role, StatutPassage } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
+import { verifierMotifGrossesse } from "../utils/motifs.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { journaliserAcces } from "./journal.service.js";
 import { terminerPassageDansTransaction } from "./passages.service.js";
@@ -148,7 +149,7 @@ export async function enregistrerConsultationDuPassage(
   return prisma.$transaction(async (transaction) => {
     const passage = await transaction.passage.findUnique({
       where: { id: passageId },
-      select: { id: true, statut: true, praticienId: true },
+      select: { id: true, statut: true, praticienId: true, patient: { select: { sexe: true, dateNaissance: true } } },
     });
     if (!passage) {
       throw new ErreurHttp(404, "PASSAGE_INTROUVABLE");
@@ -158,6 +159,8 @@ export async function enregistrerConsultationDuPassage(
     if (passage.statut !== StatutPassage.EN_CONSULTATION) {
       throw new ErreurHttp(409, "CONSULTATION_NON_MODIFIABLE");
     }
+    verifierMotifGrossesse(donnees.motif, passage.patient);
+    verifierMotifGrossesse(donnees.suiviMotif, passage.patient);
 
     const { motif, actes, ...constantes } = donnees;
     if (actes) {

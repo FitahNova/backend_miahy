@@ -14,12 +14,13 @@ import { diffuser } from "../realtime/sse.js";
 import { EVENEMENTS } from "../realtime/events.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
+import { champNom, champPrenom } from "../utils/identite.js";
 
 // Validation fine dans le service (codes d'erreur). Ici : seulement la forme des données.
 const schemaCreation = z.object({
   civilite: z.enum(Civilite).nullish(),
-  nom: z.string().trim().min(1).max(100),
-  prenom: z.string().trim().max(100),
+  nom: champNom().min(1),
+  prenom: champPrenom(),
   email: z.string().trim().max(150).nullish(),
   telephone: z.string().trim().max(30).nullish(),
   canal: z.enum(["EMAIL", "SMS"]).nullish(),

@@ -4,6 +4,7 @@ import { StatutPassage } from "../generated/prisma/client.js";
 import type { Orientation, Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
+import { verifierMotifGrossesse } from "../utils/motifs.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { creerFacturePourPassage } from "./facturation.service.js";
 import type { ActeFacture } from "./facturation.service.js";
@@ -118,7 +119,7 @@ export async function creerNouveauPassage(donnees: DonneesNouveauPassage) {
 /**
  * Création d'un passage dans une transaction existante (arrivée, ou rendez-vous marqué « Venu »).
  * Verrou sur le patient : deux postes ne peuvent pas créer chacun un passage au même instant (R029).
- * @throws 404 PATIENT_INTROUVABLE, 409 PASSAGE_DEJA_EN_COURS
+ * @throws 404 PATIENT_INTROUVABLE, 409 PASSAGE_DEJA_EN_COURS, 422 MOTIF_GROSSESSE_INCOMPATIBLE
  */
 export async function creerPassageDansTransaction(transaction: Prisma.TransactionClient, donnees: DonneesNouveauPassage) {
   const verrou = await transaction.$queryRaw<{ actif: boolean }[]>`
@@ -126,6 +127,11 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
   if (verrou.length === 0 || !verrou[0].actif) {
     throw new ErreurHttp(404, "PATIENT_INTROUVABLE");
   }
+  const patient = await transaction.patient.findUniqueOrThrow({
+    where: { id: donnees.patientId },
+    select: { sexe: true, dateNaissance: true },
+  });
+  verifierMotifGrossesse(donnees.motif, patient);
 
   const enCours = await transaction.passage.findFirst({
     where: { patientId: donnees.patientId, statut: { in: STATUTS_PASSAGE_EN_COURS } },

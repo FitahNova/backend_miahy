@@ -11,6 +11,7 @@ import { Orientation, Role, StatutDemandeAcces, StatutPassage, StatutRendezVous 
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
+import { verifierMotifGrossesse } from "../utils/motifs.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { creerPassageDansTransaction } from "./passages.service.js";
 import { coordonneesVisibles } from "./patients.service.js";
@@ -117,7 +118,7 @@ export async function listerRendezVous(filtre: { du: string; au: string }, utili
 
 /**
  * Crée un rendez-vous. La date doit être à venir ; le praticien, s'il est choisi, doit être un soignant actif.
- * @throws 400 DATE_PASSEE, PRATICIEN_INVALIDE ; 404 PATIENT_INTROUVABLE
+ * @throws 400 DATE_PASSEE, PRATICIEN_INVALIDE ; 404 PATIENT_INTROUVABLE ; 422 MOTIF_GROSSESSE_INCOMPATIBLE
  */
 export async function creerRendezVous(
   donnees: { patientId: number; praticienId?: number | null; dateHeure: Date; motif: string },
@@ -125,8 +126,12 @@ export async function creerRendezVous(
 ) {
   if (donnees.dateHeure.getTime() <= Date.now()) throw new ErreurHttp(400, "DATE_PASSEE");
   return prisma.$transaction(async (tx) => {
-    const patient = await tx.patient.findUnique({ where: { id: donnees.patientId }, select: { actif: true } });
+    const patient = await tx.patient.findUnique({
+      where: { id: donnees.patientId },
+      select: { actif: true, sexe: true, dateNaissance: true },
+    });
     if (!patient?.actif) throw new ErreurHttp(404, "PATIENT_INTROUVABLE");
+    verifierMotifGrossesse(donnees.motif, patient, donnees.dateHeure);
     if (donnees.praticienId) await verifierPraticien(tx, donnees.praticienId);
     const rdv = await tx.rendezVous.create({
       data: {

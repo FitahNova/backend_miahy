@@ -7,16 +7,12 @@ import {
   obtenirPatientParIdentifiant,
 } from "../services/patients.service.js";
 import { ErreurHttp } from "../utils/errors.js";
+import { champNom, champPrenom, schemaDateNaissance } from "../utils/identite.js";
 import { lireIdentifiant } from "../utils/parametres.js";
 
-const schemaDateNaissance = z.iso
-  .date()
-  .transform((texte) => new Date(`${texte}T00:00:00.000Z`))
-  .refine((date) => date <= new Date(), "La date de naissance ne peut pas être dans le futur");
-
 const schemaPatient = z.object({
-  nom: z.string().trim().min(1).max(100),
-  prenom: z.string().trim().min(1).max(100),
+  nom: champNom().min(1),
+  prenom: champPrenom().min(1),
   sexe: z.enum(["H", "F"]),
   dateNaissance: schemaDateNaissance,
   telephone: z.string().trim().max(20).nullish(),
