@@ -1,0 +1,604 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  DIRECTION    @map("direction")
+  MEDECIN_CHEF @map("medecin_chef")
+  MEDECIN      @map("medecin")
+  SAGE_FEMME   @map("sage_femme")
+  SECRETAIRE   @map("secretaire")
+
+  @@map("role")
+}
+
+enum Sexe {
+  H
+  F
+
+  @@map("sexe")
+}
+
+model Programme {
+  id       Int       @id @default(autoincrement())
+  nom      String    @unique @db.VarChar(50)
+  actif    Boolean   @default(true)
+  patients    Patient[]
+  partenaires Partenaire[]
+
+  @@map("programme")
+}
+
+model Utilisateur {
+  id               Int       @id @default(autoincrement())
+  nom              String    @db.VarChar(100)
+  prenom           String?   @db.VarChar(100)
+  civilite         Civilite?
+  email            String?   @unique @db.VarChar(150)
+  telephone        String?   @unique @db.VarChar(20)
+  motDePasseHash   String    @map("mot_de_passe_hash") @db.VarChar(255)
+  role             Role
+  actif            Boolean   @default(true)
+  tentativesEchec  Int       @default(0) @map("tentatives_echec") @db.SmallInt
+  verrouilleJusqua DateTime? @map("verrouille_jusqua") @db.Timestamptz(6)
+  versionSession   Int       @default(0) @map("version_session")
+
+  // Mot de passe provisoire (expire)
+  motDePasseTemporaire Boolean   @default(false) @map("mot_de_passe_temporaire")
+  motDePasseExpireLe   DateTime? @map("mot_de_passe_expire_le") @db.Timestamptz(6)
+
+  // TOTP (code du téléphone)
+  totpActif         Boolean   @default(false) @map("totp_actif")
+  totpSecretChiffre String?   @map("totp_secret_chiffre") @db.Text
+  totpActiveLe      DateTime? @map("totp_active_le") @db.Timestamptz(6)
+
+  passages        Passage[]
+  ordonnances     Ordonnance[]
+  paiements       Paiement[]
+  clotures        ClotureCaisse[]
+  mouvementsStock MouvementStock[]
+  journalAudit    JournalAudit[]
+  sessions        SessionUtilisateur[]
+  jetons          JetonUsage[]
+  defis           DefiConnexion[]
+  codesSecours    CodeSecoursUtilisateur[]
+  gardes          GardeJour[]
+  documentsAjoutes DocumentPartenaire[]
+  rendezVousPraticien RendezVous[] @relation("RendezVousPraticien")
+  rendezVousCrees     RendezVous[] @relation("RendezVousCreateur")
+  demandesAcces       DemandeAcces[] @relation("DemandesAcces")
+  demandesTraitees    DemandeAcces[] @relation("DemandesTraitees")
+
+  @@map("utilisateur")
+}
+
+enum Orientation {
+  MEDECIN    @map("medecin")
+  SAGE_FEMME @map("sage_femme")
+
+  @@map("orientation")
+}
+
+enum StatutPassage {
+  EN_ATTENTE      @map("en_attente")
+  EN_CONSULTATION @map("en_consultation")
+  PHARMACIE       @map("pharmacie")
+  CAISSE          @map("caisse")
+  PARTIEL         @map("partiel")
+  A_REVOIR        @map("a_revoir")
+  TERMINE         @map("termine")
+
+  @@map("statut_passage")
+}
+
+enum StatutFacture {
+  PHARMACIE @map("pharmacie")
+  A_PAYER   @map("a_payer")
+  PARTIEL   @map("partiel")
+  PAYE      @map("paye")
+  ANNULEE   @map("annulee") // Direction seule, si rien n'a été payé ; stock restitué
+
+  @@map("statut_facture")
+}
+
+enum TypeLigneFacture {
+  ACTE       @map("acte")
+  MEDICAMENT @map("medicament")
+
+  @@map("type_ligne_facture")
+}
+
+enum TypeMouvement {
+  ENTREE     @map("entree")
+  SORTIE     @map("sortie")
+  AJUSTEMENT @map("ajustement")
+  RETOUR     @map("retour") // écriture inverse d'une sortie (retrait d'un médicament, annulation) : R065
+
+  @@map("type_mouvement")
+}
+
+// R098 : espèces et Mobile Money (carte écartée pour l'instant).
+enum ModePaiement {
+  ESPECES      @map("especes")
+  MOBILE_MONEY @map("mobile_money")
+
+  @@map("mode_paiement")
+}
+
+model Patient {
+  id               Int        @id @default(autoincrement())
+  numeroDossier    String     @unique @map("numero_dossier") @db.VarChar(8)
+  nom              String     @db.VarChar(100)
+  prenom           String     @db.VarChar(100)
+  sexe             Sexe
+  dateNaissance    DateTime   @map("date_naissance") @db.Date
+  telephone        String?    @db.VarChar(20)
+  adresse          String?    @db.VarChar(255)
+  allergies        String?    @db.Text
+  programmeId      Int?       @map("programme_id")
+  programme        Programme? @relation(fields: [programmeId], references: [id])
+  contactConfiance String?    @map("contact_confiance") @db.VarChar(255)
+  financement      String     @default("Personnel") @db.VarChar(30)
+  actif            Boolean    @default(true)
+  creeLe           DateTime   @default(now()) @map("cree_le") @db.Timestamptz(6)
+  passages         Passage[]
+  factures         Facture[]
+  rendezVous       RendezVous[]
+
+  @@index([nom, telephone])
+  @@map("patient")
+}
+
+model Passage {
+  id           Int           @id @default(autoincrement())
+  patientId    Int           @map("patient_id")
+  patient      Patient       @relation(fields: [patientId], references: [id])
+  praticienId  Int?          @map("praticien_id")
+  praticien    Utilisateur?  @relation(fields: [praticienId], references: [id])
+  motif        String        @db.VarChar(255)
+  orientation  Orientation?
+  statut       StatutPassage @default(EN_ATTENTE)
+  urgence      Boolean       @default(false)
+  heureArrivee DateTime      @default(now()) @map("heure_arrivee") @db.Timestamptz(6)
+  heureDebut   DateTime?     @map("heure_debut") @db.Timestamptz(6)
+  heureFin     DateTime?     @map("heure_fin") @db.Timestamptz(6)
+  consultation Consultation?
+  ordonnance   Ordonnance?
+  factures     Facture[]
+  rendezVous   RendezVous?
+
+  @@index([statut])
+  @@map("passage")
+}
+
+model Consultation {
+  id              Int       @id @default(autoincrement())
+  passageId       Int       @unique @map("passage_id")
+  passage         Passage   @relation(fields: [passageId], references: [id])
+  tension         String?   @db.VarChar(10)
+  poidsKg         Decimal?  @map("poids_kg") @db.Decimal(5, 2)
+  pouls           Int?      @db.SmallInt
+  temperature     Decimal?  @db.Decimal(3, 1)
+  spo2            Int?      @db.SmallInt
+  glycemie        Decimal?  @db.Decimal(4, 2)
+  examen          String?   @db.Text
+  diagnostic      String?   @db.Text
+  note            String?   @db.Text
+  brouillon       Json?
+  suiviDelaiJours Int?      @map("suivi_delai_jours") @db.SmallInt
+  suiviMotif      String?   @map("suivi_motif") @db.VarChar(50)
+  signeeLe        DateTime? @map("signee_le") @db.Timestamptz(6)
+  // Rendez-vous de revue créés à la signature (« Ce patient doit-il être revu ? »).
+  rendezVousRevue RendezVous[]
+
+  @@map("consultation")
+}
+
+model Ordonnance {
+  id             Int               @id @default(autoincrement())
+  passageId      Int               @unique @map("passage_id")
+  passage        Passage           @relation(fields: [passageId], references: [id])
+  prescripteurId Int               @map("prescripteur_id")
+  prescripteur   Utilisateur       @relation(fields: [prescripteurId], references: [id])
+  creeLe         DateTime          @default(now()) @map("cree_le") @db.Timestamptz(6)
+  lignes         LigneOrdonnance[]
+
+  @@map("ordonnance")
+}
+
+model LigneOrdonnance {
+  id                Int              @id @default(autoincrement())
+  ordonnanceId      Int              @map("ordonnance_id")
+  ordonnance        Ordonnance       @relation(fields: [ordonnanceId], references: [id])
+  medicamentId      Int              @map("medicament_id")
+  medicament        Medicament       @relation(fields: [medicamentId], references: [id])
+  doseParPrise      Decimal          @map("dose_par_prise") @db.Decimal(4, 2)
+  prisesParJour     Int              @map("prises_par_jour") @db.SmallInt
+  dureeJours        Int              @map("duree_jours") @db.SmallInt
+  quantitePrescrite Int              @map("quantite_prescrite")
+  quantiteDelivree  Int              @default(0) @map("quantite_delivree")
+  instruction       String?          @db.VarChar(255)
+  mouvements        MouvementStock[]
+  lignesFacture     LigneFacture[]
+
+  @@map("ligne_ordonnance")
+}
+
+model Facture {
+  id              Int            @id @default(autoincrement())
+  numero          String         @unique @db.VarChar(10)
+  passageId       Int            @map("passage_id")
+  passage         Passage        @relation(fields: [passageId], references: [id])
+  patientId       Int            @map("patient_id")
+  patient         Patient        @relation(fields: [patientId], references: [id])
+  total           Int
+  partPartenaire  Int            @default(0) @map("part_partenaire")
+  partPatient     Int            @map("part_patient")
+  remise          Int            @default(0)
+  montantPaye     Int            @default(0) @map("montant_paye")
+  statut          StatutFacture  @default(PHARMACIE)
+  creeLe          DateTime       @default(now()) @map("cree_le") @db.Timestamptz(6)
+  annuleeLe       DateTime?      @map("annulee_le") @db.Timestamptz(6)
+  motifAnnulation String?        @map("motif_annulation") @db.VarChar(255)
+  // Partenaire qui a pris en charge une partie de la facture (part enregistrée dans partPartenaire).
+  partenaireId    Int?           @map("partenaire_id")
+  partenaire      Partenaire?    @relation(fields: [partenaireId], references: [id])
+  lignes          LigneFacture[]
+  paiements       Paiement[]
+
+  // Plusieurs factures par passage (règle confirmée) : ajout après un paiement partiel = nouvelle facture.
+  @@index([passageId])
+  @@index([patientId, statut])
+  @@map("facture")
+}
+
+model LigneFacture {
+  id                Int              @id @default(autoincrement())
+  factureId         Int              @map("facture_id")
+  facture           Facture          @relation(fields: [factureId], references: [id])
+  type              TypeLigneFacture
+  serviceId         Int?             @map("service_id")
+  service           Service?         @relation(fields: [serviceId], references: [id])
+  medicamentId      Int?             @map("medicament_id")
+  medicament        Medicament?      @relation(fields: [medicamentId], references: [id])
+  libelle           String           @db.VarChar(150)
+  quantite          Int
+  prixUnitaire      Int              @map("prix_unitaire")
+  // Ligne issue de l'ordonnance (null = ajout hors ordonnance, retirable tant que rien n'est payé).
+  ligneOrdonnanceId Int?             @map("ligne_ordonnance_id")
+  ligneOrdonnance   LigneOrdonnance? @relation(fields: [ligneOrdonnanceId], references: [id])
+  mouvements        MouvementStock[]
+
+  @@map("ligne_facture")
+}
+
+model Paiement {
+  id            Int            @id @default(autoincrement())
+  factureId     Int            @map("facture_id")
+  facture       Facture        @relation(fields: [factureId], references: [id])
+  utilisateurId Int            @map("utilisateur_id")
+  utilisateur   Utilisateur    @relation(fields: [utilisateurId], references: [id])
+  montant       Int
+  mode          ModePaiement
+  reference     String?        @db.VarChar(50)
+  montantRecu   Int?           @map("montant_recu")
+  date          DateTime       @default(now()) @db.Timestamptz(6)
+  // R110 : un paiement rattaché à une clôture n'est plus modifiable.
+  clotureId     Int?           @map("cloture_id")
+  cloture       ClotureCaisse? @relation(fields: [clotureId], references: [id])
+
+  @@index([date])
+  @@map("paiement")
+}
+
+model ClotureCaisse {
+  id            Int         @id @default(autoincrement())
+  utilisateurId Int         @map("utilisateur_id")
+  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id])
+  jour          DateTime    @unique @db.Date
+  // R109 (provisoire) : total attendu = fond de caisse + paiements en espèces du jour.
+  fondDeCaisse  Int         @default(0) @map("fond_de_caisse")
+  totalAttendu  Int         @map("total_attendu")
+  totalCompte   Int         @map("total_compte")
+  ecart         Int
+  commentaire   String?     @db.Text
+  paiements     Paiement[]
+
+  @@map("cloture_caisse")
+}
+
+model CategorieMedicament {
+  id          Int          @id @default(autoincrement())
+  nom         String       @unique @db.VarChar(80)
+  medicaments Medicament[]
+
+  @@map("categorie_medicament")
+}
+
+model Medicament {
+  id               Int                 @id @default(autoincrement())
+  categorieId      Int                 @map("categorie_id")
+  categorie        CategorieMedicament @relation(fields: [categorieId], references: [id])
+  nom              String              @db.VarChar(150)
+  forme            String              @db.VarChar(30)
+  prixAchat        Int                 @map("prix_achat")
+  prixVente        Int                 @map("prix_vente")
+  seuilAlerte      Int                 @map("seuil_alerte")
+  datePeremption   DateTime?           @map("date_peremption") @db.Date
+  actif            Boolean             @default(true)
+  mouvements       MouvementStock[]
+  lignesOrdonnance LigneOrdonnance[]
+  lignesFacture    LigneFacture[]
+
+  @@map("medicament")
+}
+
+// Stock = SUM(quantite). Jamais supprimé ni modifié ; correction par écriture inverse.
+model MouvementStock {
+  id                  Int                @id @default(autoincrement())
+  medicamentId        Int                @map("medicament_id")
+  medicament          Medicament         @relation(fields: [medicamentId], references: [id])
+  type                TypeMouvement
+  quantite            Int
+  date                DateTime           @default(now()) @db.Timestamptz(6)
+  utilisateurId       Int                @map("utilisateur_id")
+  utilisateur         Utilisateur        @relation(fields: [utilisateurId], references: [id])
+  approvisionnementId Int?               @map("approvisionnement_id")
+  approvisionnement   Approvisionnement? @relation(fields: [approvisionnementId], references: [id])
+  ligneOrdonnanceId   Int?               @map("ligne_ordonnance_id")
+  ligneOrdonnance     LigneOrdonnance?   @relation(fields: [ligneOrdonnanceId], references: [id])
+  prixAchatUnitaire   Int?               @map("prix_achat_unitaire")
+  motif               String?            @db.VarChar(255)
+  // Ligne de facture concernée : permet l'écriture inverse exacte lors d'un retrait.
+  ligneFactureId      Int?               @map("ligne_facture_id")
+  ligneFacture        LigneFacture?      @relation(fields: [ligneFactureId], references: [id])
+
+  @@index([medicamentId])
+  @@map("mouvement_stock")
+}
+
+model Fournisseur {
+  id                 Int                 @id @default(autoincrement())
+  nom                String              @db.VarChar(150)
+  telephone          String?             @db.VarChar(20)
+  actif              Boolean             @default(true)
+  approvisionnements Approvisionnement[]
+
+  @@map("fournisseur")
+}
+
+model Approvisionnement {
+  id            Int              @id @default(autoincrement())
+  fournisseurId Int              @map("fournisseur_id")
+  fournisseur   Fournisseur      @relation(fields: [fournisseurId], references: [id])
+  dateReception DateTime         @map("date_reception") @db.Date
+  reference     String?          @db.VarChar(50)
+  mouvements    MouvementStock[]
+
+  @@map("approvisionnement")
+}
+
+model Service {
+  id     Int            @id @default(autoincrement())
+  nom    String         @unique @db.VarChar(100)
+  prix   Int?
+  actif  Boolean        @default(true)
+  lignes LigneFacture[]
+  partenairesCouvrant Partenaire[]
+
+  @@map("service")
+}
+
+model JournalAudit {
+  id            BigInt       @id @default(autoincrement())
+  utilisateurId Int?         @map("utilisateur_id")
+  utilisateur   Utilisateur? @relation(fields: [utilisateurId], references: [id])
+  action        String       @db.VarChar(50)
+  entite        String       @db.VarChar(50)
+  entiteId      Int?         @map("entite_id")
+  detail        Json?
+  date          DateTime     @default(now()) @db.Timestamptz(6)
+
+  @@map("journal_audit")
+}
+
+model SessionUtilisateur {
+  id            Int         @id @default(autoincrement())
+  utilisateurId Int         @map("utilisateur_id")
+  refreshHache  String      @unique @map("refresh_hache") @db.VarChar(64)
+  creeLe        DateTime    @default(now()) @map("cree_le")
+  expireLe      DateTime    @map("expire_le")
+  revoqueLe     DateTime?   @map("revoque_le")
+  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+
+  @@map("session_utilisateur")
+}
+
+model JetonUsage {
+  id            Int         @id @default(autoincrement())
+  utilisateurId Int         @map("utilisateur_id")
+  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+  type          String      @db.VarChar(20)
+  hache         String      @unique @db.VarChar(64)
+  expireLe      DateTime    @map("expire_le") @db.Timestamptz(6)
+  utiliseLe     DateTime?   @map("utilise_le") @db.Timestamptz(6)
+  creeLe        DateTime    @default(now()) @map("cree_le") @db.Timestamptz(6)
+
+  @@index([utilisateurId, type])
+  @@map("jeton_usage")
+}
+
+model DefiConnexion {
+  id            String      @id @db.VarChar(64)
+  utilisateurId Int         @map("utilisateur_id")
+  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+  expireLe      DateTime    @map("expire_le") @db.Timestamptz(6)
+  utiliseLe     DateTime?   @map("utilise_le") @db.Timestamptz(6)
+
+  @@map("defi_connexion")
+}
+
+model CodeSecoursUtilisateur {
+  id            Int         @id @default(autoincrement())
+  utilisateurId Int         @map("utilisateur_id")
+  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+  codeHache     String      @map("code_hache") @db.VarChar(100)
+  utiliseLe     DateTime?   @map("utilise_le") @db.Timestamptz(6)
+
+  @@map("code_secours_utilisateur")
+}
+
+enum Civilite {
+  DR  @map("dr")
+  MME @map("mme")
+  M   @map("m")
+
+  @@map("civilite")
+}
+
+model GardeJour {
+  id            Int         @id @default(autoincrement())
+  date          DateTime    @db.Date
+  utilisateurId Int         @map("utilisateur_id")
+  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id])
+  creeLe        DateTime    @default(now()) @map("cree_le") @db.Timestamptz(6)
+
+  @@unique([date, utilisateurId])
+  @@map("garde_jour")
+}
+
+model ReglementGarde {
+  id    Int    @id @default(autoincrement())
+  ordre Int    @unique
+  texte String @db.VarChar(255)
+
+  @@map("reglement_garde")
+}
+
+// ---------- Partenaires et conventions (dossier §6.11, maquette « Partenaires ») ----------
+
+model CategoriePartenaire {
+  id          Int          @id @default(autoincrement())
+  nom         String       @unique @db.VarChar(50)
+  partenaires Partenaire[]
+
+  @@map("categorie_partenaire")
+}
+
+model Partenaire {
+  id                Int                  @id @default(autoincrement())
+  nom               String               @unique @db.VarChar(150)
+  categorieId       Int                  @map("categorie_id")
+  categorie         CategoriePartenaire  @relation(fields: [categorieId], references: [id])
+  contact           String?              @db.VarChar(255)
+  // Convention : un taux appliqué à UN objet couvert, un service ou les médicaments (maquette).
+  tauxPriseEnCharge Int                  @default(0) @map("taux_prise_en_charge") @db.SmallInt
+  serviceCouvertId  Int?                 @map("service_couvert_id")
+  serviceCouvert    Service?             @relation(fields: [serviceCouvertId], references: [id])
+  couvreMedicaments Boolean              @default(false) @map("couvre_medicaments")
+  debut             DateTime?            @db.Date
+  fin               DateTime?            @db.Date
+  // Pas de suppression : un partenaire est suspendu (décision du 14/10/2026).
+  actif             Boolean              @default(true)
+  creeLe            DateTime             @default(now()) @map("cree_le") @db.Timestamptz(6)
+  programmes        Programme[]
+  documents         DocumentPartenaire[]
+  factures          Facture[]
+
+  @@map("partenaire")
+}
+
+model DocumentPartenaire {
+  id           Int         @id @default(autoincrement())
+  partenaireId Int         @map("partenaire_id")
+  partenaire   Partenaire  @relation(fields: [partenaireId], references: [id])
+  nomFichier   String      @map("nom_fichier") @db.VarChar(255)
+  typeMime     String      @map("type_mime") @db.VarChar(100)
+  tailleOctets Int         @map("taille_octets")
+  // Chemin relatif au dossier de stockage du serveur (jamais exposé tel quel au front).
+  chemin       String      @db.VarChar(255)
+  ajouteParId  Int         @map("ajoute_par_id")
+  ajoutePar    Utilisateur @relation(fields: [ajouteParId], references: [id])
+  ajouteLe     DateTime    @default(now()) @map("ajoute_le") @db.Timestamptz(6)
+
+  @@index([partenaireId])
+  @@map("document_partenaire")
+}
+
+// ---------- Rendez-vous (dossier §6.7) ----------
+
+enum StatutRendezVous {
+  PREVU  @map("prevu")
+  VENU   @map("venu")
+  ABSENT @map("absent")
+  ANNULE @map("annule")
+
+  @@map("statut_rendez_vous")
+}
+
+model RendezVous {
+  id                    Int              @id @default(autoincrement())
+  patientId             Int              @map("patient_id")
+  patient               Patient          @relation(fields: [patientId], references: [id])
+  praticienId           Int?             @map("praticien_id")
+  praticien             Utilisateur?     @relation("RendezVousPraticien", fields: [praticienId], references: [id])
+  dateHeure             DateTime         @map("date_heure") @db.Timestamptz(6)
+  motif                 String           @db.VarChar(255)
+  statut                StatutRendezVous @default(PREVU)
+  // « Venu » crée le passage dans la file d'attente.
+  passageId             Int?             @unique @map("passage_id")
+  passage               Passage?         @relation(fields: [passageId], references: [id])
+  // Revue programmée à la signature d'une consultation.
+  consultationOrigineId Int?             @map("consultation_origine_id")
+  consultationOrigine   Consultation?    @relation(fields: [consultationOrigineId], references: [id])
+  creeParId             Int              @map("cree_par_id")
+  creePar               Utilisateur      @relation("RendezVousCreateur", fields: [creeParId], references: [id])
+  creeLe                DateTime         @default(now()) @map("cree_le") @db.Timestamptz(6)
+
+  @@index([dateHeure])
+  @@index([patientId])
+  @@map("rendez_vous")
+}
+
+// ---------- Demandes d'accès à la Direction (R013) ----------
+
+// Mot de passe oublié (depuis la page de connexion).
+enum TypeDemandeAcces {
+  MOT_DE_PASSE @map("mot_de_passe")
+
+  @@map("type_demande_acces")
+}
+
+enum StatutDemandeAcces {
+  EN_ATTENTE @map("en_attente")
+  TRAITEE    @map("traitee")
+  REFUSEE    @map("refusee")
+
+  @@map("statut_demande_acces")
+}
+
+// Une seule demande en attente par personne et par type : index unique partiel ajouté par la migration SQL.
+model DemandeAcces {
+  id            Int                @id @default(autoincrement())
+  utilisateurId Int                @map("utilisateur_id")
+  utilisateur   Utilisateur        @relation("DemandesAcces", fields: [utilisateurId], references: [id])
+  type          TypeDemandeAcces
+  statut        StatutDemandeAcces @default(EN_ATTENTE)
+  creeLe        DateTime           @default(now()) @map("cree_le") @db.Timestamptz(6)
+  traiteParId   Int?               @map("traite_par_id")
+  traitePar     Utilisateur?       @relation("DemandesTraitees", fields: [traiteParId], references: [id])
+  traiteLe      DateTime?          @map("traite_le") @db.Timestamptz(6)
+
+  @@index([statut])
+  @@map("demande_acces")
+}
