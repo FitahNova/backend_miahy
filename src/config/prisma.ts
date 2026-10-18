@@ -1,11 +1,4 @@
-/*
- * Connexion à la base Neon.
- * Par défaut : pilote serverless de Neon, par WebSocket sur le port 443 (celui du web).
- * Pourquoi : beaucoup de réseaux (Wi-Fi d'université, d'entreprise, public) bloquent le port 5432
- * de PostgreSQL ; le port 443 est ouvert partout où un navigateur fonctionne.
- * Repli possible en connexion PostgreSQL directe (port 5432) : variable d'environnement BD_CONNEXION=tcp.
- * Les migrations (`prisma migrate`) passent toujours par le port 5432 : à lancer depuis un réseau qui l'autorise.
- */
+
 import { neonConfig } from "@neondatabase/serverless";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { PrismaPg } from "@prisma/adapter-pg";

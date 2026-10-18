@@ -62,18 +62,18 @@ model Utilisateur {
   totpSecretChiffre String?   @map("totp_secret_chiffre") @db.Text
   totpActiveLe      DateTime? @map("totp_active_le") @db.Timestamptz(6)
 
-  passages        Passage[]
-  ordonnances     Ordonnance[]
-  paiements       Paiement[]
-  clotures        ClotureCaisse[]
-  mouvementsStock MouvementStock[]
-  journalAudit    JournalAudit[]
-  sessions        SessionUtilisateur[]
-  jetons          JetonUsage[]
-  defis           DefiConnexion[]
-  codesSecours    CodeSecoursUtilisateur[]
-  gardes          GardeJour[]
-  documentsAjoutes DocumentPartenaire[]
+  passages            Passage[]
+  ordonnances         Ordonnance[]
+  paiements           Paiement[]
+  clotures            ClotureCaisse[]
+  mouvementsStock     MouvementStock[]
+  journalAudit        JournalAudit[]
+  sessions            SessionUtilisateur[]
+  jetons              JetonUsage[]
+  defis               DefiConnexion[]
+  codesSecours        CodeSecoursUtilisateur[]
+  gardes              GardeJour[]
+  documentsAjoutes    DocumentPartenaire[]
   rendezVousPraticien RendezVous[] @relation("RendezVousPraticien")
   rendezVousCrees     RendezVous[] @relation("RendezVousCreateur")
   demandesAcces       DemandeAcces[] @relation("DemandesAcces")

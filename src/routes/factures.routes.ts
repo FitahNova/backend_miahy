@@ -9,7 +9,7 @@ import {
 } from "../controllers/factures.controller.js";
 
 const routeur = Router();
-// Les soignants ne voient pas la facturation (R009 non retenue, droits du dossier de projet).
+// Les soignants ne voient pas la facturation
 routeur.use(exigerConnexion, exigerRole(Role.SECRETAIRE, Role.DIRECTION));
 
 routeur.get("/", gererAsync(listerHistoriqueFactures));

@@ -12,14 +12,11 @@ const NOMBRE_RELAIS = 2;
 
 const app = express();
 
-// En ligne, les requêtes traversent deux relais (Vercel, puis le répartiteur de Render) :
-// l'adresse IP réelle du client est lue dans X-Forwarded-For, sinon la limitation des
-// connexions compterait tous les utilisateurs comme une seule adresse.
 if (estEnProduction) app.set("trust proxy", NOMBRE_RELAIS);
 
 app.use(helmet());
 app.use(cors({ origin: environnement.CLIENT_ORIGIN, credentials: true }));
-// Corps JSON limité à 100 ko, sauf l'envoi de documents partenaires qui a sa propre limite (route dédiée).
+
 const ROUTE_DOCUMENTS_PARTENAIRES = /^\/api\/partenaires\/\d+\/documents$/;
 const lecteurJson = express.json();
 app.use((requete, reponse, suivant) =>
@@ -39,7 +36,7 @@ app.use("/api/auth", sessionRoutes);
 app.use("/api", routeurApi);
 app.use("/api", routeInconnue);
 
-// Le gestionnaire d'erreurs doit toujours être déclaré après toutes les routes.
+
 app.use(gestionnaireErreurs);
 
 app.listen(environnement.PORT, () => {
