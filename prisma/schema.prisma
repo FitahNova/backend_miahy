@@ -61,6 +61,7 @@ model Utilisateur {
   totpActif         Boolean   @default(false) @map("totp_actif")
   totpSecretChiffre String?   @map("totp_secret_chiffre") @db.Text
   totpActiveLe      DateTime? @map("totp_active_le") @db.Timestamptz(6)
+  totpDernierPas    Int?      @map("totp_dernier_pas") // dernier code accepté : un code ne sert qu'une fois
 
   passages            Passage[]
   ordonnances         Ordonnance[]
@@ -78,6 +79,10 @@ model Utilisateur {
   rendezVousCrees     RendezVous[] @relation("RendezVousCreateur")
   demandesAcces       DemandeAcces[] @relation("DemandesAcces")
   demandesTraitees    DemandeAcces[] @relation("DemandesTraitees")
+  suivisCrees         Suivi[]        @relation("SuivisCrees")
+  suivisClotures      Suivi[]        @relation("SuivisClotures")
+  contactsSuivi       ContactSuivi[]
+  versementsPartenaires VersementPartenaire[]
 
   @@map("utilisateur")
 }
@@ -154,6 +159,7 @@ model Patient {
   passages         Passage[]
   factures         Facture[]
   rendezVous       RendezVous[]
+  suivis           Suivi[]
 
   @@index([nom, telephone])
   @@map("patient")
@@ -253,6 +259,11 @@ model Facture {
   // Partenaire qui a pris en charge une partie de la facture (part enregistrée dans partPartenaire).
   partenaireId    Int?           @map("partenaire_id")
   partenaire      Partenaire?    @relation(fields: [partenaireId], references: [id])
+  // Convention figée au premier paiement ou au choix en caisse (R087) : taux appliqué et part exacte,
+  // centimes compris (arrondi à valider avec la Direction, R085). partPartenaire en garde la partie entière.
+  tauxPartenaire       Int?      @map("taux_partenaire") @db.SmallInt
+  partPartenaireExacte Decimal?  @map("part_partenaire_exacte") @db.Decimal(12, 2)
+  conventionFigeeLe    DateTime? @map("convention_figee_le") @db.Timestamptz(6)
   lignes          LigneFacture[]
   paiements       Paiement[]
 
@@ -399,16 +410,23 @@ model Service {
   @@map("service")
 }
 
+// Journal en ajout seul : un déclencheur en base refuse UPDATE et DELETE (migration journal_audit_inalterable).
+// role : rôle de l'auteur au moment de l'action, rempli par la base à l'insertion.
+// detail : { avant, apres } pour une modification ; jamais de donnée médicale en clair.
 model JournalAudit {
   id            BigInt       @id @default(autoincrement())
   utilisateurId Int?         @map("utilisateur_id")
-  utilisateur   Utilisateur? @relation(fields: [utilisateurId], references: [id])
+  utilisateur   Utilisateur? @relation(fields: [utilisateurId], references: [id], onDelete: Restrict)
+  role          Role?
   action        String       @db.VarChar(50)
   entite        String       @db.VarChar(50)
   entiteId      Int?         @map("entite_id")
   detail        Json?
+  ip            String?      @db.VarChar(45)
   date          DateTime     @default(now()) @db.Timestamptz(6)
 
+  @@index([date])
+  @@index([utilisateurId, date])
   @@map("journal_audit")
 }
 
@@ -438,13 +456,19 @@ model JetonUsage {
   @@map("jeton_usage")
 }
 
+// Étape entre le mot de passe et la session : code à 6 chiffres envoyé par e-mail (ou SMS), stocké haché.
 model DefiConnexion {
   id            String      @id @db.VarChar(64)
   utilisateurId Int         @map("utilisateur_id")
   utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+  codeHache     String?     @map("code_hache") @db.VarChar(64)
+  canal         String?     @db.VarChar(10)
+  tentatives    Int         @default(0) @db.SmallInt
+  envoyeLe      DateTime    @default(now()) @map("envoye_le") @db.Timestamptz(6)
   expireLe      DateTime    @map("expire_le") @db.Timestamptz(6)
   utiliseLe     DateTime?   @map("utilise_le") @db.Timestamptz(6)
 
+  @@index([utilisateurId])
   @@map("defi_connexion")
 }
 
@@ -514,6 +538,7 @@ model Partenaire {
   programmes        Programme[]
   documents         DocumentPartenaire[]
   factures          Facture[]
+  versements        VersementPartenaire[]
 
   @@map("partenaire")
 }
@@ -564,6 +589,8 @@ model RendezVous {
   creeParId             Int              @map("cree_par_id")
   creePar               Utilisateur      @relation("RendezVousCreateur", fields: [creeParId], references: [id])
   creeLe                DateTime         @default(now()) @map("cree_le") @db.Timestamptz(6)
+  // Suivi lié : revue programmée en consultation, ou rendez-vous manqué (« Absent »).
+  suivi                 Suivi?
 
   @@index([dateHeure])
   @@index([patientId])
@@ -601,4 +628,129 @@ model DemandeAcces {
 
   @@index([statut])
   @@map("demande_acces")
+}
+
+// ---------- Suivi et rappels (R120 à R130) ----------
+
+// Grossesse, Contrôle, Résultats, Vaccination… : liste que la Direction peut compléter.
+model TypeSuivi {
+  id     Int     @id @default(autoincrement())
+  nom    String  @unique @db.VarChar(50)
+  actif  Boolean @default(true)
+  suivis Suivi[]
+
+  @@map("type_suivi")
+}
+
+enum OrigineSuivi {
+  CONSULTATION       @map("consultation")
+  RENDEZ_VOUS_ABSENT @map("rendez_vous_absent")
+  MANUEL             @map("manuel")
+
+  @@map("origine_suivi")
+}
+
+enum MotifClotureSuivi {
+  RETOUR_PATIENT @map("retour_patient")
+  MANUELLE       @map("manuelle")
+
+  @@map("motif_cloture_suivi")
+}
+
+enum CanalContact {
+  APPEL @map("appel")
+  SMS   @map("sms")
+  AUTRE @map("autre")
+
+  @@map("canal_contact")
+}
+
+enum ResultatContact {
+  JOINT          @map("joint")
+  INJOIGNABLE    @map("injoignable")
+  MESSAGE_LAISSE @map("message_laisse")
+
+  @@map("resultat_contact")
+}
+
+// Un patient doit revenir vers une échéance. Ouvert tant que clotureLe est vide ; la liste
+// (à contacter, en retard, perdus de vue) se calcule à partir de l'échéance.
+model Suivi {
+  id           Int                @id @default(autoincrement())
+  patientId    Int                @map("patient_id")
+  patient      Patient            @relation(fields: [patientId], references: [id])
+  typeId       Int                @map("type_id")
+  type         TypeSuivi          @relation(fields: [typeId], references: [id])
+  echeance     DateTime           @db.Date
+  origine      OrigineSuivi
+  note         String?            @db.VarChar(255)
+  rendezVousId Int?               @unique @map("rendez_vous_id")
+  rendezVous   RendezVous?        @relation(fields: [rendezVousId], references: [id])
+  creeParId    Int                @map("cree_par_id")
+  creePar      Utilisateur        @relation("SuivisCrees", fields: [creeParId], references: [id])
+  creeLe       DateTime           @default(now()) @map("cree_le") @db.Timestamptz(6)
+  clotureLe    DateTime?          @map("cloture_le") @db.Timestamptz(6)
+  motifCloture MotifClotureSuivi? @map("motif_cloture")
+  clotureParId Int?               @map("cloture_par_id")
+  cloturePar   Utilisateur?       @relation("SuivisClotures", fields: [clotureParId], references: [id])
+  contacts     ContactSuivi[]
+
+  @@index([clotureLe, echeance])
+  @@index([patientId])
+  @@map("suivi")
+}
+
+// Appel ou message pour un suivi : jamais modifié, pour garder l'historique des relances.
+model ContactSuivi {
+  id       Int             @id @default(autoincrement())
+  suiviId  Int             @map("suivi_id")
+  suivi    Suivi           @relation(fields: [suiviId], references: [id])
+  canal    CanalContact
+  resultat ResultatContact
+  note     String?         @db.VarChar(255)
+  date     DateTime        @default(now()) @db.Timestamptz(6)
+  auteurId Int             @map("auteur_id")
+  auteur   Utilisateur     @relation(fields: [auteurId], references: [id])
+
+  @@index([suiviId])
+  @@map("contact_suivi")
+}
+
+// Somme reçue d'un partenaire pour ses parts de factures (R095). Jamais modifiée ni supprimée.
+model VersementPartenaire {
+  id           Int         @id @default(autoincrement())
+  partenaireId Int         @map("partenaire_id")
+  partenaire   Partenaire  @relation(fields: [partenaireId], references: [id])
+  montant      Decimal     @db.Decimal(12, 2)
+  date         DateTime    @db.Date
+  reference    String?     @db.VarChar(100)
+  note         String?     @db.VarChar(255)
+  auteurId     Int         @map("auteur_id")
+  auteur       Utilisateur @relation(fields: [auteurId], references: [id])
+  creeLe       DateTime    @default(now()) @map("cree_le") @db.Timestamptz(6)
+
+  @@index([partenaireId])
+  @@map("versement_partenaire")
+}
+
+// ---------- Charges fixes (dossier §6.12, R140) ----------
+
+enum PeriodiciteCharge {
+  MENSUELLE     @map("mensuelle")
+  TRIMESTRIELLE @map("trimestrielle")
+  ANNUELLE      @map("annuelle")
+
+  @@map("periodicite_charge")
+}
+
+// Loyer, salaires… : montant en Ariary (vide = « à fixer »). Pas de suppression : désactivée.
+model ChargeFixe {
+  id          Int               @id @default(autoincrement())
+  libelle     String            @unique @db.VarChar(100)
+  montant     Int?
+  periodicite PeriodiciteCharge @default(MENSUELLE)
+  actif       Boolean           @default(true)
+  creeLe      DateTime          @default(now()) @map("cree_le") @db.Timestamptz(6)
+
+  @@map("charge_fixe")
 }

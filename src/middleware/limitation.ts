@@ -1,9 +1,10 @@
 import rateLimit from "express-rate-limit";
+import { FENETRE_LIMITE_CONNEXION_MINUTES, MAX_REQUETES_CONNEXION } from "../config/constants.js";
 
-// Tentatives par adresse IP : 10 par 15 minutes sur les routes de connexion publiques.
+// R159 : 20 tentatives par adresse IP et par 15 minutes sur les routes de connexion publiques.
 export const limiteConnexion = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
+  windowMs: FENETRE_LIMITE_CONNEXION_MINUTES * 60 * 1000,
+  limit: MAX_REQUETES_CONNEXION,
   standardHeaders: "draft-7",
   legacyHeaders: false,
   // Le délai d'attente est envoyé dans l'en-tête RateLimit / Retry-After (draft-7).

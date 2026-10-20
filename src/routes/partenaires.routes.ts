@@ -5,7 +5,9 @@ import { gererAsync } from "../utils/asyncHandler.js";
 import {
   ajouterCategoriePartenaire,
   ajouterPartenaire,
+  ajouterVersement,
   basculerActifPartenaire,
+  obtenirRecouvrement,
   joindreDocument,
   mettreAJourPartenaire,
   obtenirCategoriesPartenaires,
@@ -29,6 +31,9 @@ routeur.patch("/categories/:id", gererAsync(renommerCategorie));
 routeur.get("/documents/:documentId", gererAsync(telechargerDocument));
 routeur.put("/:id", gererAsync(mettreAJourPartenaire));
 routeur.patch("/:id/actif", gererAsync(basculerActifPartenaire));
+// R095 : ce que doit le partenaire, et les sommes qu'il a versées.
+routeur.get("/:id/recouvrement", gererAsync(obtenirRecouvrement));
+routeur.post("/:id/versements", gererAsync(ajouterVersement));
 routeur.post("/:id/documents", express.json({ limit: LIMITE_CORPS_DOCUMENT }), gererAsync(joindreDocument));
 
 export default routeur;

@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { Role, StatutPassage } from "../generated/prisma/client.js";
+import { OrigineSuivi, Role, StatutPassage } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
@@ -8,6 +8,8 @@ import { enregistrerAudit } from "./audit.service.js";
 import { journaliserAcces } from "./journal.service.js";
 import { terminerPassageDansTransaction } from "./passages.service.js";
 import { creerRendezVousDeRevue } from "./rendezVous.service.js";
+import { creerSuiviAutomatique } from "./suivis.service.js";
+import { jourDuCentre } from "../utils/suivis.js";
 
 export interface UtilisateurConnecte {
   id: number;
@@ -244,15 +246,25 @@ export async function signerEtTerminerConsultation(passageId: number, utilisateu
       actes.map((serviceId) => ({ serviceId, quantite: 1 })),
     );
 
-    // « Ce patient doit-il être revu ? » Oui : rendez-vous créé avec le signataire (maquette).
+    // « Ce patient doit-il être revu ? » Oui : rendez-vous avec le signataire, et un suivi pour le relancer
+    // s'il ne vient pas (R052, R121).
     if (existante.suiviDelaiJours) {
       const patient = await transaction.passage.findUniqueOrThrow({ where: { id: passageId }, select: { patientId: true } });
-      await creerRendezVousDeRevue(transaction, {
+      const motif = existante.suiviMotif ?? "Revue";
+      const revue = await creerRendezVousDeRevue(transaction, {
         patientId: patient.patientId,
         praticienId: utilisateur.id,
         consultationId: existante.id,
         delaiJours: existante.suiviDelaiJours,
-        motif: existante.suiviMotif ?? "Revue",
+        motif,
+      });
+      await creerSuiviAutomatique(transaction, {
+        patientId: patient.patientId,
+        motif,
+        echeance: jourDuCentre(revue.dateHeure),
+        origine: OrigineSuivi.CONSULTATION,
+        rendezVousId: revue.id,
+        creeParId: utilisateur.id,
       });
     }
 

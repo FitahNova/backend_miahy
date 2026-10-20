@@ -5,6 +5,7 @@ import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import routeurApi from "./routes/index.js";
 import { gestionnaireErreurs, routeInconnue } from "./middleware/errorHandler.js";
+import { contexteRequete } from "./middleware/contexteRequete.js";
 import routeurAuth from "./routes/auth.routes.js";
 import sessionRoutes from "./routes/session.routes.js";
 
@@ -23,6 +24,7 @@ app.use((requete, reponse, suivant) =>
   ROUTE_DOCUMENTS_PARTENAIRES.test(requete.path) ? suivant() : lecteurJson(requete, reponse, suivant),
 );
 app.use(cookieParser());
+app.use(contexteRequete);
 
 app.get("/api/health", (_requete, reponse) => {
   reponse.json({ ok: true });
@@ -35,7 +37,6 @@ app.use("/api/auth", sessionRoutes);
 // Routes métier (patients, file, consultations, pharmacie, caisse, gardes...).
 app.use("/api", routeurApi);
 app.use("/api", routeInconnue);
-
 
 app.use(gestionnaireErreurs);
 

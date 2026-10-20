@@ -9,6 +9,7 @@ import {
   modifierRemiseFacture,
   obtenirRecuFacture,
 } from "../services/caisse.service.js";
+import { choisirConvention } from "../services/conventions.service.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
 import { EVENEMENTS } from "../realtime/events.js";
@@ -27,6 +28,9 @@ const schemaPaiement = z.object({
 const schemaRemise = z.object({
   montant: z.number().int().nonnegative(),
 });
+
+// partenaireId : null = « sans convention » (le patient n'en bénéficie pas pour cette facture).
+const schemaConvention = z.object({ partenaireId: z.number().int().positive().nullable() }).strict();
 
 const schemaJour = z.iso.date();
 
@@ -55,6 +59,14 @@ export async function enregistrerPaiement(requete: Request, reponse: Response) {
   );
   diffuser([EVENEMENTS.FILE_MODIFIEE, EVENEMENTS.CAISSE_MODIFIEE], { factureId: resultat.facture.id });
   reponse.status(201).json(resultat);
+}
+
+// R089 : la secrétaire choisit la convention (ou aucune) avant le premier paiement.
+export async function choisirConventionFacture(requete: Request, reponse: Response) {
+  const { partenaireId } = schemaConvention.parse(requete.body);
+  const facture = await choisirConvention(lireIdentifiant(requete.params.factureId), partenaireId, lireUtilisateurId(requete));
+  diffuser([EVENEMENTS.FILE_MODIFIEE, EVENEMENTS.CAISSE_MODIFIEE], { factureId: facture.id });
+  reponse.json({ facture });
 }
 
 export async function modifierRemise(requete: Request, reponse: Response) {

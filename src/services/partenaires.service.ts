@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "../config/prisma.js";
-import { StatutFacture } from "../generated/prisma/client.js";
+import { Prisma, StatutFacture } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
@@ -101,24 +101,117 @@ function versDonneesPrisma(donnees: DonneesPartenaire) {
  * Les factures annulées ne comptent pas.
  */
 export async function listerPartenaires() {
-  const [partenaires, statistiques] = await Promise.all([
+  const [partenaires, statistiques, versements] = await Promise.all([
     prisma.partenaire.findMany({ orderBy: [{ actif: "desc" }, { nom: "asc" }], select: SELECTION_PARTENAIRE }),
     prisma.facture.groupBy({
       by: ["partenaireId"],
       where: { partenaireId: { not: null }, statut: { not: StatutFacture.ANNULEE } },
       _count: { _all: true },
-      _sum: { partPartenaire: true },
+      _sum: { partPartenaireExacte: true },
     }),
+    prisma.versementPartenaire.groupBy({ by: ["partenaireId"], _sum: { montant: true } }),
   ]);
   const parPartenaire = new Map(statistiques.map((ligne) => [ligne.partenaireId, ligne]));
+  const verseParPartenaire = new Map(versements.map((ligne) => [ligne.partenaireId, ligne._sum.montant]));
   return partenaires.map((partenaire) => {
     const ligne = parPartenaire.get(partenaire.id);
+    const prisEnCharge = new Prisma.Decimal(ligne?._sum.partPartenaireExacte ?? 0);
+    const verse = new Prisma.Decimal(verseParPartenaire.get(partenaire.id) ?? 0);
     return {
       ...partenaire,
       nombreFactures: ligne?._count._all ?? 0,
-      montantPrisEnCharge: ligne?._sum.partPartenaire ?? 0,
+      montantPrisEnCharge: prisEnCharge.toNumber(),
+      montantVerse: verse.toNumber(),
+      montantARecouvrer: prisEnCharge.minus(verse).toNumber(),
     };
   });
+}
+
+// ---------- Recouvrement (R095) ----------
+
+/**
+ * Ce que doit un partenaire : parts partenaire de ses factures (hors annulées), moins ses versements.
+ * Montants exacts, centimes compris.
+ * @throws 404 PARTENAIRE_INTROUVABLE
+ */
+export async function lireRecouvrement(partenaireId: number) {
+  const partenaire = await prisma.partenaire.findUnique({ where: { id: partenaireId }, select: { id: true, nom: true } });
+  if (!partenaire) throw new ErreurHttp(404, "PARTENAIRE_INTROUVABLE");
+  const [factures, versements] = await Promise.all([
+    prisma.facture.findMany({
+      where: { partenaireId, statut: { not: StatutFacture.ANNULEE } },
+      orderBy: { creeLe: "desc" },
+      select: {
+        id: true,
+        numero: true,
+        creeLe: true,
+        tauxPartenaire: true,
+        partPartenaireExacte: true,
+        patient: { select: { numeroDossier: true, nom: true, prenom: true } },
+      },
+    }),
+    prisma.versementPartenaire.findMany({
+      where: { partenaireId },
+      orderBy: [{ date: "desc" }, { id: "desc" }],
+      select: { id: true, montant: true, date: true, reference: true, note: true, creeLe: true },
+    }),
+  ]);
+  const totalPrisEnCharge = factures.reduce((somme, f) => somme.plus(f.partPartenaireExacte ?? 0), new Prisma.Decimal(0));
+  const totalVerse = versements.reduce((somme, v) => somme.plus(v.montant), new Prisma.Decimal(0));
+  return {
+    partenaire,
+    totalPrisEnCharge: totalPrisEnCharge.toNumber(),
+    totalVerse: totalVerse.toNumber(),
+    resteARecouvrer: totalPrisEnCharge.minus(totalVerse).toNumber(),
+    factures: factures.map(({ partPartenaireExacte, ...facture }) => ({ ...facture, part: Number(partPartenaireExacte ?? 0) })),
+    versements: versements.map((versement) => ({ ...versement, montant: Number(versement.montant) })),
+  };
+}
+
+/**
+ * Somme reçue d'un partenaire (virement, chèque, espèces…). Jamais plus que ce qu'il reste à recouvrer.
+ * @throws 404 PARTENAIRE_INTROUVABLE ; 400 VERSEMENT_SUPERIEUR_AU_RESTE (reste)
+ */
+export async function enregistrerVersement(
+  partenaireId: number,
+  donnees: { montant: number; date: string; reference?: string | null; note?: string | null },
+  auteurId: number,
+) {
+  return prisma.$transaction(async (tx) => {
+    // Verrou sur le partenaire : deux versements simultanés ne dépassent pas le reste à eux deux.
+    const verrou = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM partenaire WHERE id = ${partenaireId} FOR UPDATE`;
+    if (verrou.length === 0) throw new ErreurHttp(404, "PARTENAIRE_INTROUVABLE");
+    const [du, verse] = await Promise.all([
+      tx.facture.aggregate({
+        where: { partenaireId, statut: { not: StatutFacture.ANNULEE } },
+        _sum: { partPartenaireExacte: true },
+      }),
+      tx.versementPartenaire.aggregate({ where: { partenaireId }, _sum: { montant: true } }),
+    ]);
+    const reste = new Prisma.Decimal(du._sum.partPartenaireExacte ?? 0).minus(verse._sum.montant ?? 0);
+    const montant = new Prisma.Decimal(donnees.montant);
+    if (montant.greaterThan(reste)) throw new ErreurHttp(400, "VERSEMENT_SUPERIEUR_AU_RESTE", { reste: reste.toNumber() });
+
+    const versement = await tx.versementPartenaire.create({
+      data: {
+        partenaireId,
+        montant,
+        date: new Date(`${donnees.date}T00:00:00.000Z`),
+        reference: donnees.reference ?? null,
+        note: donnees.note ?? null,
+        auteurId,
+      },
+      select: { id: true, montant: true, date: true, reference: true, note: true },
+    });
+    await enregistrerAudit(tx, {
+      utilisateurId: auteurId,
+      action: "VERSEMENT_PARTENAIRE",
+      entite: "partenaire",
+      entiteId: partenaireId,
+      detail: { montant: montant.toString(), reference: donnees.reference ?? null },
+    });
+    return { ...versement, montant: Number(versement.montant) };
+  }, OPTIONS_TRANSACTION);
 }
 
 /** Crée un partenaire et sa convention. @throws 409 DOUBLON (nom déjà utilisé, via Prisma P2002). */

@@ -7,6 +7,7 @@ import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { verifierMotifGrossesse } from "../utils/motifs.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { creerFacturePourPassage } from "./facturation.service.js";
+import { cloturerSuivisAuRetour } from "./suivis.service.js";
 import type { ActeFacture } from "./facturation.service.js";
 
 const MILLISECONDES_PAR_MINUTE = 60 * 1000;
@@ -70,7 +71,7 @@ async function verifierPraticien(identifiant: number) {
 async function obtenirPassageExistant(identifiant: number) {
   const passage = await prisma.passage.findUnique({
     where: { id: identifiant },
-    select: { id: true, statut: true, praticienId: true },
+    select: { id: true, statut: true, praticienId: true, urgence: true },
   });
   if (!passage) {
     throw new ErreurHttp(404, "PASSAGE_INTROUVABLE");
@@ -141,7 +142,7 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
     throw new ErreurHttp(409, "PASSAGE_DEJA_EN_COURS");
   }
 
-  return transaction.passage.create({
+  const passage = await transaction.passage.create({
     data: {
       patientId: donnees.patientId,
       motif: donnees.motif,
@@ -151,15 +152,28 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
     },
     select: selectionPassage,
   });
+  // Le patient est revenu : ses suivis échus ou proches sont clôturés (R128).
+  await cloturerSuivisAuRetour(transaction, donnees.patientId);
+  return passage;
 }
 
 export async function prendrePassageEnCharge(passageId: number, praticienId: number) {
-  const resultat = await prisma.passage.updateMany({
-    where: { id: passageId, statut: StatutPassage.EN_ATTENTE },
-    data: { statut: StatutPassage.EN_CONSULTATION, praticienId, heureDebut: new Date() },
-  });
+  const pris = await prisma.$transaction(async (transaction) => {
+    const resultat = await transaction.passage.updateMany({
+      where: { id: passageId, statut: StatutPassage.EN_ATTENTE },
+      data: { statut: StatutPassage.EN_CONSULTATION, praticienId, heureDebut: new Date() },
+    });
+    if (resultat.count === 0) return false;
+    await enregistrerAudit(transaction, {
+      utilisateurId: praticienId,
+      action: "PRISE_EN_CHARGE_PASSAGE",
+      entite: "passage",
+      entiteId: passageId,
+    });
+    return true;
+  }, OPTIONS_TRANSACTION);
 
-  if (resultat.count === 0) {
+  if (!pris) {
     await obtenirPassageExistant(passageId);
     throw new ErreurHttp(409, "PASSAGE_PLUS_EN_ATTENTE");
   }
@@ -247,23 +261,41 @@ export async function changerStatutPassage(passageId: number, cible: StatutPassa
   return lirePassageComplet(passageId);
 }
 
-export async function modifierUrgenceDuPassage(passageId: number, urgence: boolean) {
+export async function modifierUrgenceDuPassage(passageId: number, urgence: boolean, auteurId: number) {
   const passage = await obtenirPassageExistant(passageId);
   if (passage.statut === StatutPassage.TERMINE) {
     throw new ErreurHttp(409, "PASSAGE_TERMINE");
   }
 
-  await prisma.passage.update({ where: { id: passageId }, data: { urgence } });
+  await prisma.$transaction(async (transaction) => {
+    await transaction.passage.update({ where: { id: passageId }, data: { urgence } });
+    await enregistrerAudit(transaction, {
+      utilisateurId: auteurId,
+      action: "URGENCE_PASSAGE",
+      entite: "passage",
+      entiteId: passageId,
+      detail: { avant: { urgence: passage.urgence }, apres: { urgence } },
+    });
+  }, OPTIONS_TRANSACTION);
   return lirePassageComplet(passageId);
 }
 
-export async function affecterPraticienAuPassage(passageId: number, praticienId: number) {
+export async function affecterPraticienAuPassage(passageId: number, praticienId: number, auteurId: number) {
   const passage = await obtenirPassageExistant(passageId);
   if (passage.statut === StatutPassage.TERMINE) {
     throw new ErreurHttp(409, "PASSAGE_TERMINE");
   }
 
   await verifierPraticien(praticienId);
-  await prisma.passage.update({ where: { id: passageId }, data: { praticienId } });
+  await prisma.$transaction(async (transaction) => {
+    await transaction.passage.update({ where: { id: passageId }, data: { praticienId } });
+    await enregistrerAudit(transaction, {
+      utilisateurId: auteurId,
+      action: "AFFECTATION_PRATICIEN",
+      entite: "passage",
+      entiteId: passageId,
+      detail: { avant: { praticienId: passage.praticienId }, apres: { praticienId } },
+    });
+  }, OPTIONS_TRANSACTION);
   return lirePassageComplet(passageId);
 }

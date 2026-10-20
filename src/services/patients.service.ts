@@ -4,6 +4,9 @@ import { Role } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { normaliserTelephone, MESSAGE_TELEPHONE } from "../utils/telephone.js";
+import { champsModifies } from "../utils/audit.js";
+import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
+import { enregistrerAudit } from "./audit.service.js";
 
 const NOMBRE_CHIFFRES_NUMERO_DOSSIER = 4; // MIA-0001 : 8 caractères au total
 const NOMBRE_ESSAIS_CREATION = 3;
@@ -133,7 +136,7 @@ async function chercherDoublon(nom: string, telephone: string | null) {
   });
 }
 
-export async function creerNouveauPatient(donnees: DonneesCreationPatient, confirmerDoublon = false) {
+export async function creerNouveauPatient(donnees: DonneesCreationPatient, auteurId: number, confirmerDoublon = false) {
   // Validation du téléphone avant toute écriture.
   const telephone = telephoneCanonique(donnees.telephone);
   await verifierProgrammeExistant(donnees.programmeId);
@@ -146,10 +149,14 @@ export async function creerNouveauPatient(donnees: DonneesCreationPatient, confi
   for (let essai = 1; essai <= NOMBRE_ESSAIS_CREATION; essai++) {
     const numeroDossier = await calculerProchainNumeroDossier();
     try {
-      return await prisma.patient.create({
-        data: { ...donnees, telephone, numeroDossier },
-        include: { programme: true },
-      });
+      return await prisma.$transaction(async (tx) => {
+        const patient = await tx.patient.create({
+          data: { ...donnees, telephone, numeroDossier },
+          include: { programme: true },
+        });
+        await enregistrerAudit(tx, { utilisateurId: auteurId, action: "PATIENT_CREE", entite: "patient", entiteId: patient.id });
+        return patient;
+      }, OPTIONS_TRANSACTION);
     } catch (erreur) {
       // P2002 : numéro déjà pris par une création simultanée, on recalcule.
       const numeroDejaPris = (erreur as { code?: string }).code === "P2002";
@@ -160,16 +167,27 @@ export async function creerNouveauPatient(donnees: DonneesCreationPatient, confi
   throw new ErreurHttp(500, "NUMERO_DOSSIER_ECHEC");
 }
 
-export async function modifierPatientExistant(identifiant: number, donnees: DonneesModificationPatient) {
+export async function modifierPatientExistant(identifiant: number, donnees: DonneesModificationPatient, auteurId: number) {
   await lirePatient(identifiant);
   await verifierProgrammeExistant(donnees.programmeId as number | null | undefined);
 
   // Le téléphone n'est modifié que s'il est fourni dans la requête.
   const telephone = donnees.telephone !== undefined ? telephoneCanonique(donnees.telephone) : undefined;
 
-  return prisma.patient.update({
-    where: { id: identifiant },
-    data: { ...donnees, telephone },
-    include: { programme: true },
-  });
+  return prisma.$transaction(async (tx) => {
+    const patient = await tx.patient.update({
+      where: { id: identifiant },
+      data: { ...donnees, telephone },
+      include: { programme: true },
+    });
+    // Données de santé : seuls les noms des champs sont journalisés, jamais les valeurs.
+    await enregistrerAudit(tx, {
+      utilisateurId: auteurId,
+      action: "PATIENT_MODIFIE",
+      entite: "patient",
+      entiteId: identifiant,
+      detail: { champs: champsModifies(donnees) },
+    });
+    return patient;
+  }, OPTIONS_TRANSACTION);
 }

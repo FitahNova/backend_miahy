@@ -1,18 +1,3 @@
-/*
- * Pharmacie : délivrance (R054 à R060), ajouts et retraits hors ordonnance.
- *
- * Règles appliquées (confirmées le 13/10/2026) :
- * - La secrétaire délivre seule ; elle ne lit pas l'ordonnance : elle voit le médicament et la quantité
- *   restant à délivrer, jamais la posologie.
- * - Délivrance partielle (R057) : pour chaque ligne prescrite, on délivre au plus le reste et au plus le stock.
- *   Le reliquat (prescrit − délivré) reste visible et n'est pas facturé tant qu'il n'est pas délivré (R082).
- * - Ajout hors ordonnance : jamais sur l'ordonnance du médecin, seulement une ligne de facture.
- * - Retrait : seulement une ligne hors ordonnance, et seulement si sa facture n'a reçu aucun paiement.
- *   Le stock revient par un mouvement RETOUR (R065 : aucun mouvement n'est supprimé).
- * - Facture visée : celle en préparation (PHARMACIE), sinon une facture à payer sans aucun paiement,
- *   sinon une facture complémentaire (après un paiement partiel, rien ne s'ajoute à la facture entamée).
- * - Après chaque opération, les statuts de facture et de passage sont recalculés au même endroit.
- */
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../config/prisma.js";
 import { StatutFacture, StatutPassage, TypeLigneFacture, TypeMouvement } from "../generated/prisma/client.js";

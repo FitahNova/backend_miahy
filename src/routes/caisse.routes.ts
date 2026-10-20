@@ -5,6 +5,7 @@ import { gererAsync } from "../utils/asyncHandler.js";
 import {
   calculerCloture,
   calculerResteDuPatient,
+  choisirConventionFacture,
   cloturerJournee,
   enregistrerPaiement,
   listerFacturesAEncaisser,
@@ -17,6 +18,7 @@ routeur.use(exigerConnexion, exigerRole(Role.SECRETAIRE, Role.DIRECTION));
 
 routeur.get("/factures", gererAsync(listerFacturesAEncaisser));
 routeur.post("/factures/:factureId/paiements", gererAsync(enregistrerPaiement));
+routeur.post("/factures/:factureId/convention", gererAsync(choisirConventionFacture));
 // Règle confirmée : la remise est réservée à la Direction.
 routeur.patch("/factures/:factureId/remise", exigerRole(Role.DIRECTION), gererAsync(modifierRemise));
 routeur.get("/factures/:factureId/recu", gererAsync(obtenirRecu));

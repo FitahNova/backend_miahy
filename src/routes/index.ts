@@ -16,6 +16,9 @@ import routeurGardes from "./gardes.routes.js";
 import routeurPartenaires from "./partenaires.routes.js";
 import routeurTableauDeBord from "./tableauDeBord.routes.js";
 import routeurRendezVous from "./rendezVous.routes.js";
+import routeurSuivis from "./suivis.routes.js";
+import routeurCharges from "./charges.routes.js";
+import routeurAudit from "./audit.routes.js";
 
 const routeur = Router();
 
@@ -37,5 +40,8 @@ routeur.use("/gardes", routeurGardes);
 routeur.use("/partenaires", routeurPartenaires);
 routeur.use("/tableau-de-bord", routeurTableauDeBord);
 routeur.use("/rendez-vous", routeurRendezVous);
+routeur.use("/suivis", routeurSuivis);
+routeur.use("/charges", routeurCharges);
+routeur.use("/audit", routeurAudit);
 
 export default routeur;

@@ -13,6 +13,7 @@
 import { prisma } from "../config/prisma.js";
 import { Role, StatutFacture, StatutRendezVous } from "../generated/prisma/client.js";
 import { calculerStocks } from "./medicaments.service.js";
+import { lireTotalMensuel } from "./charges.service.js";
 
 const FUSEAU = "Indian/Antananarivo";
 const DECALAGE_FUSEAU = "+03:00";
@@ -101,9 +102,33 @@ export async function obtenirSynthese(role: Role) {
   const mois = resumer(activiteMois, avecFinances);
   return {
     aujourdhui: resumer(activiteJour, avecFinances),
-    ceMois: { ...mois, nouveauxPatients: nouveauxMois, patientsDejaSuivis: Math.max(0, mois.patients - nouveauxMois) },
+    ceMois: {
+      ...mois,
+      nouveauxPatients: nouveauxMois,
+      patientsDejaSuivis: Math.max(0, mois.patients - nouveauxMois),
+      ...(avecFinances && "chiffreAffaires" in mois ? await calculerResultatDuMois(aujourdhui, mois.chiffreAffaires) : {}),
+    },
     programmes,
     alertes,
+  };
+}
+
+/**
+ * Résultat du mois (R140, Direction seule) : encaissements des patients + versements des partenaires
+ * − charges fixes du mois (trimestrielles ÷ 3, annuelles ÷ 12). Les charges « à fixer » sont signalées.
+ */
+async function calculerResultatDuMois(aujourdhui: string, encaisseMois: number) {
+  const premierDuMois = new Date(`${aujourdhui.slice(0, 8)}01T00:00:00.000Z`);
+  const [versements, charges] = await Promise.all([
+    prisma.versementPartenaire.aggregate({ where: { date: { gte: premierDuMois } }, _sum: { montant: true } }),
+    lireTotalMensuel(),
+  ]);
+  const versePartenaires = Math.round(Number(versements._sum.montant ?? 0));
+  return {
+    versementsPartenaires: versePartenaires,
+    chargesFixes: charges.total,
+    chargesAFixer: charges.aFixer,
+    resultat: encaisseMois + versePartenaires - charges.total,
   };
 }
 
@@ -204,10 +229,7 @@ function decouper(periode: Periode, aujourdhui: string): Tranche[] {
   return tranches;
 }
 
-/**
- * Évolution sur 7 jours, 30 jours, 3 mois ou 12 mois : patients (et revenus pour la Direction) par tranche,
- * totaux de la période et variation par rapport à la période précédente de même durée.
- */
+
 export async function obtenirEvolution(periode: Periode, role: Role) {
   const avecFinances = finances(role);
   const aujourdhui = jourDuCentre(new Date());

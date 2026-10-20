@@ -54,7 +54,13 @@ export async function signerConsultation(requete: Request, reponse: Response) {
   const consultation = await signerEtTerminerConsultation(passageId, lireUtilisateur(requete));
   // Signature : le passage part en pharmacie ou en caisse, et une facture est créée.
   diffuser(
-    [EVENEMENTS.FILE_MODIFIEE, EVENEMENTS.PHARMACIE_MODIFIEE, EVENEMENTS.CAISSE_MODIFIEE, EVENEMENTS.RENDEZ_VOUS_MODIFIE],
+    [
+      EVENEMENTS.FILE_MODIFIEE,
+      EVENEMENTS.PHARMACIE_MODIFIEE,
+      EVENEMENTS.CAISSE_MODIFIEE,
+      EVENEMENTS.RENDEZ_VOUS_MODIFIE,
+      EVENEMENTS.SUIVIS_MODIFIES,
+    ],
     { passageId },
   );
   reponse.json({ consultation });

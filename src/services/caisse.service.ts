@@ -4,6 +4,7 @@ import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { calculerNetAPayer, calculerResteDu, recalculerStatutsDuPassage } from "./facturation.service.js";
+import { conventionsPossibles, figerConventionAvantPaiement } from "./conventions.service.js";
 import { CABINET } from "./impression.service.js";
 
 // Madagascar : UTC+3 toute l'année.
@@ -11,7 +12,7 @@ const FUSEAU_HORAIRE = "Indian/Antananarivo";
 const DECALAGE_FUSEAU = "+03:00";
 const MILLISECONDES_PAR_JOUR = 24 * 60 * 60 * 1000;
 
-const STATUTS_A_ENCAISSER = [StatutFacture.A_PAYER, StatutFacture.PARTIEL];
+const STATUTS_A_ENCAISSER: StatutFacture[] = [StatutFacture.A_PAYER, StatutFacture.PARTIEL];
 const STATUTS_REMISE_MODIFIABLE: StatutFacture[] = [StatutFacture.A_PAYER, StatutFacture.PARTIEL];
 
 
@@ -35,11 +36,15 @@ export async function listerFacturesEnAttenteDePaiement() {
       lignes: { orderBy: { id: "asc" } },
     },
   });
-  return factures.map((facture) => ({
-    ...facture,
-    netAPayer: calculerNetAPayer(facture),
-    resteDu: calculerResteDu(facture),
-  }));
+  // R089 : tant que la convention n'est pas figée, la caisse voit celles qui s'appliquent pour choisir.
+  return Promise.all(
+    factures.map(async (facture) => ({
+      ...facture,
+      netAPayer: calculerNetAPayer(facture),
+      resteDu: calculerResteDu(facture),
+      conventionsPossibles: await conventionsPossibles(facture.id),
+    })),
+  );
 }
 
 export async function calculerResteDuDuPatient(patientId: number) {
@@ -105,9 +110,16 @@ export async function enregistrerNouveauPaiement(
     if (clotureDuJour) throw new ErreurHttp(409, "JOURNEE_CLOTUREE");
 
     await tx.$queryRaw`SELECT id FROM facture WHERE id = ${factureId} FOR UPDATE`;
-    const facture = await tx.facture.findUnique({ where: { id: factureId } });
-    if (!facture) throw new ErreurHttp(404, "FACTURE_INTROUVABLE");
+    const avant = await tx.facture.findUnique({ where: { id: factureId }, select: { statut: true } });
+    if (!avant) throw new ErreurHttp(404, "FACTURE_INTROUVABLE");
+    // R087 : la convention est figée au premier paiement (la part patient peut diminuer).
+    if (STATUTS_A_ENCAISSER.includes(avant.statut)) await figerConventionAvantPaiement(tx, factureId, utilisateurId);
+    const facture = await tx.facture.findUniqueOrThrow({ where: { id: factureId } });
     if (facture.statut === StatutFacture.PHARMACIE) throw new ErreurHttp(409, "PHARMACIE_EN_COURS");
+    // Prise en charge totale par la convention : rien à encaisser, la convention reste figée.
+    if (facture.statut === StatutFacture.PAYE && avant.statut !== StatutFacture.PAYE) {
+      return { paiement: null, facture, resteDu: 0, rendu: 0 };
+    }
     if (facture.statut === StatutFacture.PAYE) throw new ErreurHttp(409, "FACTURE_PAYEE");
     if (facture.statut === StatutFacture.ANNULEE) throw new ErreurHttp(409, "FACTURE_ANNULEE");
     // Mobile Money : la référence de la transaction est la seule preuve du paiement.

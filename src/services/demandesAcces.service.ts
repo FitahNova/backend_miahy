@@ -1,9 +1,3 @@
-/*
- * Demandes d'accès à la Direction (R013), décisions du 14/10/2026 :
- * - mot de passe oublié : demande faite depuis la page de connexion, sans être connecté.
- * La Direction valide (lien de mot de passe envoyé) ou refuse (demande suspecte).
- * Personne ne traite sa propre demande. Une seule demande en attente par personne et par type.
- */
 import { prisma } from "../config/prisma.js";
 import { StatutDemandeAcces, TypeDemandeAcces } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";

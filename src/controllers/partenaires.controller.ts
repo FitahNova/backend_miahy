@@ -5,7 +5,9 @@ import {
   changerActifPartenaire,
   creerCategoriePartenaire,
   creerPartenaire,
+  enregistrerVersement,
   lireDocumentPartenaire,
+  lireRecouvrement,
   listerCategoriesPartenaires,
   listerPartenaires,
   modifierPartenaire,
@@ -45,6 +47,28 @@ const schemaDocument = z
 function lireAuteur(requete: Request): number {
   if (!requete.utilisateur) throw new ErreurHttp(401, "CONNEXION_REQUISE");
   return Number(requete.utilisateur.id);
+}
+
+// Versement d'un partenaire (R095) : centimes acceptés, comme sa part exacte sur les factures.
+const schemaVersement = z
+  .object({
+    montant: z.number().positive().multipleOf(0.01),
+    date: z.iso.date(),
+    reference: z.string().trim().max(100).nullish(),
+    note: z.string().trim().max(255).nullish(),
+  })
+  .strict();
+
+/** GET /api/partenaires/:id/recouvrement */
+export async function obtenirRecouvrement(requete: Request, reponse: Response) {
+  reponse.json(await lireRecouvrement(lireIdentifiant(requete.params.id)));
+}
+
+/** POST /api/partenaires/:id/versements */
+export async function ajouterVersement(requete: Request, reponse: Response) {
+  const donnees = schemaVersement.parse(requete.body);
+  const versement = await enregistrerVersement(lireIdentifiant(requete.params.id), donnees, lireAuteur(requete));
+  reponse.status(201).json({ versement });
 }
 
 /** GET /api/partenaires */

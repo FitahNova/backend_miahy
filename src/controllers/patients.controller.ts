@@ -6,9 +6,8 @@ import {
   modifierPatientExistant,
   obtenirPatientParIdentifiant,
 } from "../services/patients.service.js";
-import { ErreurHttp } from "../utils/errors.js";
 import { champNom, champPrenom, champsNaissance, naissanceDepuisSaisie, regleNaissance } from "../utils/identite.js";
-import { lireIdentifiant } from "../utils/parametres.js";
+import { lireIdentifiant, lireUtilisateur } from "../utils/parametres.js";
 
 // La date de naissance peut être remplacée par l'âge (R016) : voir regleNaissance.
 const champsPatient = {
@@ -32,12 +31,7 @@ const schemaModificationPatient = z
 
 const schemaRecherche = z.object({ q: z.string().optional() });
 
-function lireRole(requete: Request) {
-  if (!requete.utilisateur) {
-    throw new ErreurHttp(401, "CONNEXION_REQUISE");
-  }
-  return requete.utilisateur.role;
-}
+const lireRole = (requete: Request) => lireUtilisateur(requete).role;
 
 // Les coordonnées sont masquées selon le rôle (R024) : le service reçoit le rôle de l'appelant.
 export async function listerPatients(requete: Request, reponse: Response) {
@@ -60,13 +54,17 @@ export async function creerPatient(requete: Request, reponse: Response) {
   const { confirmerDoublon, age, uniteAge, ...donnees } = schemaCreationPatient.parse(requete.body);
   // Toujours définie ici : regleNaissance(true) exige la date ou l'âge.
   const dateNaissance = naissanceDepuisSaisie({ dateNaissance: donnees.dateNaissance, age, uniteAge })!;
-  const patient = await creerNouveauPatient({ ...donnees, dateNaissance }, confirmerDoublon ?? false);
+  const patient = await creerNouveauPatient({ ...donnees, dateNaissance }, lireUtilisateur(requete).id, confirmerDoublon ?? false);
   reponse.status(201).json({ patient });
 }
 
 export async function modifierPatient(requete: Request, reponse: Response) {
   const { age, uniteAge, ...donnees } = schemaModificationPatient.parse(requete.body);
   const dateNaissance = naissanceDepuisSaisie({ dateNaissance: donnees.dateNaissance, age, uniteAge });
-  const patient = await modifierPatientExistant(lireIdentifiant(requete.params.id), { ...donnees, dateNaissance });
+  const patient = await modifierPatientExistant(
+    lireIdentifiant(requete.params.id),
+    { ...donnees, dateNaissance },
+    lireUtilisateur(requete).id,
+  );
   reponse.json({ patient });
 }

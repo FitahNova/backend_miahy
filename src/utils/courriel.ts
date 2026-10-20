@@ -43,6 +43,28 @@ export async function envoyerCourrielLien(destinataire: string, nom: string, url
   }
 }
 
+/**
+ * Envoie le code de connexion à 6 chiffres (double authentification).
+ * @throws 503 ENVOI_COURRIEL_IMPOSSIBLE
+ */
+export async function envoyerCourrielCode(destinataire: string, nom: string, code: string, dureeMinutes: number) {
+  try {
+    await transporteur.sendMail({
+      from: `"MIAHY" <${process.env.GMAIL_USER}>`,
+      to: destinataire,
+      subject: `MIAHY : votre code de connexion ${code}`,
+      text:
+        `Bonjour ${nom},\n\n` +
+        `Votre code de connexion MIAHY est : ${code}\n\n` +
+        `Il est valable ${dureeMinutes} minutes et ne sert qu'une fois. Ne le communiquez à personne.\n\n` +
+        `Si vous n'essayez pas de vous connecter, votre mot de passe est peut-être connu : prévenez la Direction.`,
+    });
+  } catch (erreur) {
+    console.error("Envoi du courriel impossible :", erreur);
+    throw new ErreurHttp(503, "ENVOI_COURRIEL_IMPOSSIBLE");
+  }
+}
+
 // Pour l'affichage à la Direction : jamais l'adresse complète.
 export function masquerEmail(email: string): string {
   const [local, domaine] = email.split("@");

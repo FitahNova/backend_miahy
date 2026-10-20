@@ -8,8 +8,8 @@ import {
   listerUtilisateurs,
   reinitialiserMotDePasse,
 } from "../services/utilisateurs.service.js";
-import { listerJournalConnexion } from "../services/journal.service.js";
 import { listerDemandesEnAttente, traiterDemande } from "../services/demandesAcces.service.js";
+import { reinitialiserTotp } from "../services/totp.service.js";
 import { diffuser } from "../realtime/sse.js";
 import { EVENEMENTS } from "../realtime/events.js";
 import { ErreurHttp } from "../utils/errors.js";
@@ -84,9 +84,10 @@ export async function modifierContact(requete: Request, reponse: Response) {
   reponse.json(await corrigerContact(lireIdentifiant(requete.params.id), donnees, lireAuteur(requete)));
 }
 
-export async function obtenirJournalConnexion(_requete: Request, reponse: Response) {
-  const entrees = await listerJournalConnexion();
-  reponse.json({ entrees });
+// Téléphone perdu : la personne recevra une nouvelle clé TOTP à sa prochaine connexion.
+export async function reinitialiserCodeTotp(requete: Request, reponse: Response) {
+  await reinitialiserTotp(lireIdentifiant(requete.params.id), lireAuteur(requete));
+  reponse.status(204).end();
 }
 
 export async function obtenirDemandes(_requete: Request, reponse: Response) {

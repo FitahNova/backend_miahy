@@ -11,7 +11,7 @@ import {
   prendrePassageEnCharge,
 } from "../services/passages.service.js";
 import { ErreurHttp } from "../utils/errors.js";
-import { lireIdentifiant } from "../utils/parametres.js";
+import { lireIdentifiant, lireUtilisateur } from "../utils/parametres.js";
 import { EVENEMENTS } from "../realtime/events.js";
 import { diffuser } from "../realtime/sse.js";
 
@@ -55,18 +55,12 @@ export async function listerFileAttente(requete: Request, reponse: Response) {
 export async function creerPassage(requete: Request, reponse: Response) {
   const donnees = schemaNouveauPassage.parse(requete.body);
   const passage = await creerNouveauPassage(donnees);
-  diffuser(EVENEMENTS.FILE_MODIFIEE, { passageId: passage.id });
+  diffuser([EVENEMENTS.FILE_MODIFIEE, EVENEMENTS.SUIVIS_MODIFIES], { passageId: passage.id });
   reponse.status(201).json({ passage });
 }
 
 export async function prendreEnCharge(requete: Request, reponse: Response) {
-  if (!requete.utilisateur) {
-    throw new ErreurHttp(401, "CONNEXION_REQUISE");
-  }
-  const passage = await prendrePassageEnCharge(
-    lireIdentifiant(requete.params.id),
-    Number(requete.utilisateur.id),
-  );
+  const passage = await prendrePassageEnCharge(lireIdentifiant(requete.params.id), lireUtilisateur(requete).id);
   diffuser(EVENEMENTS.FILE_MODIFIEE, { passageId: passage.id });
   reponse.json({ passage });
 }
@@ -91,14 +85,14 @@ export async function changerStatut(requete: Request, reponse: Response) {
 
 export async function changerUrgence(requete: Request, reponse: Response) {
   const { urgence } = schemaUrgence.parse(requete.body);
-  const passage = await modifierUrgenceDuPassage(lireIdentifiant(requete.params.id), urgence);
+  const passage = await modifierUrgenceDuPassage(lireIdentifiant(requete.params.id), urgence, lireUtilisateur(requete).id);
   diffuser(EVENEMENTS.FILE_MODIFIEE, { passageId: passage.id });
   reponse.json({ passage });
 }
 
 export async function affecterPraticien(requete: Request, reponse: Response) {
   const { praticienId } = schemaPraticien.parse(requete.body);
-  const passage = await affecterPraticienAuPassage(lireIdentifiant(requete.params.id), praticienId);
+  const passage = await affecterPraticienAuPassage(lireIdentifiant(requete.params.id), praticienId, lireUtilisateur(requete).id);
   diffuser(EVENEMENTS.FILE_MODIFIEE, { passageId: passage.id });
   reponse.json({ passage });
 }

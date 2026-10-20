@@ -52,7 +52,10 @@ export async function creer(requete: Request, reponse: Response) {
 export async function venu(requete: Request, reponse: Response) {
   const id = lireIdentifiant(requete.params.id);
   const resultat = await marquerVenu(id, lireUtilisateur(requete));
-  diffuser([EVENEMENTS.RENDEZ_VOUS_MODIFIE, EVENEMENTS.FILE_MODIFIEE], { rendezVousId: id, passageId: resultat.passageId });
+  diffuser([EVENEMENTS.RENDEZ_VOUS_MODIFIE, EVENEMENTS.FILE_MODIFIEE, EVENEMENTS.SUIVIS_MODIFIES], {
+    rendezVousId: id,
+    passageId: resultat.passageId,
+  });
   reponse.json(resultat);
 }
 
@@ -61,7 +64,9 @@ export async function clore(requete: Request, reponse: Response) {
   const id = lireIdentifiant(requete.params.id);
   const { statut } = schemaCloture.parse(requete.body);
   await cloreRendezVous(id, statut, lireUtilisateur(requete));
-  diffuser(EVENEMENTS.RENDEZ_VOUS_MODIFIE, { rendezVousId: id });
+  diffuser(statut === "ABSENT" ? [EVENEMENTS.RENDEZ_VOUS_MODIFIE, EVENEMENTS.SUIVIS_MODIFIES] : EVENEMENTS.RENDEZ_VOUS_MODIFIE, {
+    rendezVousId: id,
+  });
   reponse.status(204).end();
 }
 

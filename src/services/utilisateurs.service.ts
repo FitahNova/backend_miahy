@@ -71,6 +71,7 @@ export async function listerUtilisateurs() {
   const utilisateurs = await prisma.utilisateur.findMany({
     select: {
       ...selectionUtilisateur,
+      totpActif: true,
       motDePasseTemporaire: true,
       jetons: {
         where: { type: { in: TYPES_LIEN } },

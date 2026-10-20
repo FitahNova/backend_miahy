@@ -1,6 +1,6 @@
-import { DUREE_LIEN_MOT_DE_PASSE_HEURES } from "../config/constants.js";
+import { DUREE_CODE_CONNEXION_MINUTES, DUREE_LIEN_MOT_DE_PASSE_HEURES } from "../config/constants.js";
 import { ErreurHttp } from "./errors.js";
-import { envoyerCourrielLien, masquerEmail, type ObjetLien } from "./courriel.js";
+import { envoyerCourrielCode, envoyerCourrielLien, masquerEmail, type ObjetLien } from "./courriel.js";
 import { envoyerSms } from "./sms.js";
 
 export type CanalEnvoi = "EMAIL" | "SMS";
@@ -43,6 +43,19 @@ export async function envoyerLienMotDePasse(
       contact.telephone,
       `MIAHY : choisissez votre mot de passe sur ${url} (lien valable ${DUREE_LIEN_MOT_DE_PASSE_HEURES} h, une seule fois).`,
     );
+    return masquerTelephone(contact.telephone);
+  }
+  throw new ErreurHttp(400, "CANAL_SANS_CONTACT");
+}
+
+/** Envoie le code de connexion par le canal choisi. Renvoie la destination masquée. */
+export async function envoyerCodeConnexion(contact: Contact, nom: string, code: string, canal: CanalEnvoi): Promise<string> {
+  if (canal === "EMAIL" && contact.email) {
+    await envoyerCourrielCode(contact.email, nom, code, DUREE_CODE_CONNEXION_MINUTES);
+    return masquerEmail(contact.email);
+  }
+  if (canal === "SMS" && contact.telephone) {
+    await envoyerSms(contact.telephone, `MIAHY : votre code de connexion est ${code} (valable ${DUREE_CODE_CONNEXION_MINUTES} min).`);
     return masquerTelephone(contact.telephone);
   }
   throw new ErreurHttp(400, "CANAL_SANS_CONTACT");

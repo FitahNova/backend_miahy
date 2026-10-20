@@ -1,6 +1,8 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "../config/prisma.js";
 import { DUREE_VERROUILLAGE_MINUTES, MAX_ECHECS_CONNEXION } from "../config/constants.js";
+import { environnement } from "../config/env.js";
+import { envoyerNouveauCode, ouvrirDefi } from "./codeConnexion.service.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { normaliserTelephone } from "../utils/telephone.js";
 import { journaliserConnexion } from "./journal.service.js";
@@ -28,7 +30,8 @@ export function chercherUtilisateurParIdentifiant(identifiant: string) {
   return prisma.utilisateur.findUnique({ where: { telephone } });
 }
 
-// Connexion : identifiant et mot de passe, puis ouverture de la session.
+// Connexion : identifiant et mot de passe, puis code envoyé par e-mail si la double authentification
+// est active (CODE_CONNEXION=actif), sinon ouverture directe de la session.
 export async function connecterUtilisateur(identifiant: string, motDePasse: string) {
   const utilisateur = await chercherUtilisateurParIdentifiant(identifiant);
 
@@ -80,8 +83,16 @@ export async function connecterUtilisateur(identifiant: string, motDePasse: stri
     });
   }
 
+  // Double authentification : aucune session avant le bon code.
+  if (environnement.DOUBLE_AUTHENTIFICATION === "email") {
+    return { etape: "CODE" as const, ...(await envoyerNouveauCode(utilisateur)) };
+  }
+  if (environnement.DOUBLE_AUTHENTIFICATION === "totp") {
+    const defi = await ouvrirDefi(utilisateur.id, "TOTP");
+    return { etape: utilisateur.totpActif ? ("TOTP" as const) : ("ACTIVATION_TOTP" as const), defi };
+  }
   await journaliser(utilisateur.id, "CONNEXION");
-  return ouvrirSession(utilisateur.id);
+  return { etape: "CONNECTE" as const, session: await ouvrirSession(utilisateur.id) };
 }
 
 export async function obtenirUtilisateurConnecte(identifiant: number) {

@@ -7,6 +7,7 @@ export const EVENEMENTS = {
   STOCK_MODIFIE: "stock-modifie", // délivrance, approvisionnement, ajustement
   RENDEZ_VOUS_MODIFIE: "rendez-vous-modifie", // rendez-vous créé, venu, absent, annulé
   DEMANDES_MODIFIEES: "demandes-modifiees", // mot de passe oublié : demande créée, traitée
+  SUIVIS_MODIFIES: "suivis-modifies", // suivi créé, contacté, clôturé (dont retour du patient)
 } as const;
 
 export type Evenement = (typeof EVENEMENTS)[keyof typeof EVENEMENTS];

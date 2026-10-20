@@ -22,9 +22,19 @@ export function listerServices() {
   return prisma.service.findMany({ select: selectionService, orderBy: { nom: "asc" } });
 }
 
-export async function creerService(donnees: DonneesCreationService, _auteurId: number) {
+export async function creerService(donnees: DonneesCreationService, auteurId: number) {
   try {
-    return await prisma.service.create({ data: donnees, select: selectionService });
+    return await prisma.$transaction(async (transaction) => {
+      const service = await transaction.service.create({ data: donnees, select: selectionService });
+      await enregistrerAudit(transaction, {
+        utilisateurId: auteurId,
+        action: "SERVICE_CREE",
+        entite: "service",
+        entiteId: service.id,
+        detail: { nom: service.nom, prix: service.prix },
+      });
+      return service;
+    }, OPTIONS_TRANSACTION);
   } catch (erreur) {
     if (estViolationUnique(erreur)) {
       throw new ErreurHttp(409, "SERVICE_EXISTANT");
@@ -42,7 +52,7 @@ export async function modifierService(
     async (transaction) => {
       const existant = await transaction.service.findUnique({
         where: { id },
-        select: { id: true, prix: true },
+        select: { id: true, prix: true, actif: true },
       });
       if (!existant) {
         throw new ErreurHttp(404, "SERVICE_INTROUVABLE");
@@ -61,6 +71,14 @@ export async function modifierService(
           entite: "service",
           entiteId: id,
           detail: { ancienPrix: existant.prix, nouveauPrix: service.prix },
+        });
+      }
+      if (donnees.actif !== undefined && donnees.actif !== existant.actif) {
+        await enregistrerAudit(transaction, {
+          utilisateurId: auteurId,
+          action: donnees.actif ? "SERVICE_ACTIVE" : "SERVICE_DESACTIVE",
+          entite: "service",
+          entiteId: id,
         });
       }
       return service;

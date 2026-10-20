@@ -8,9 +8,16 @@ export const FENETRE_LIMITE_CONNEXION_MINUTES = 15;
 export const MAX_REQUETES_CONNEXION = 20;           // par fenêtre
 export const DUREE_LIEN_MOT_DE_PASSE_HEURES = 8;    // lien d'activation ou de réinitialisation (décision du 14/10/2026)
 export const LONGUEUR_MIN_MOT_DE_PASSE = 8;
+export const DUREE_CODE_CONNEXION_MINUTES = 10;     // code à 6 chiffres envoyé après le mot de passe
+export const MAX_ESSAIS_CODE_CONNEXION = 5;
+export const DELAI_RENVOI_CODE_SECONDES = 60;
 
 // File d'attente
 export const SEUIL_ATTENTE_LONGUE_MINUTES = 30;     // alerte orange [À valider avec la Direction]
+
+// Suivi et rappels (R122, R124) [paramétrables plus tard par la Direction, R142]
+export const JOURS_AVANT_A_CONTACTER = 3;           // « À contacter » : échéance dans les 3 prochains jours
+export const JOURS_RETARD_PERDU_DE_VUE = 30;        // « Perdus de vue » : plus de 30 jours de retard
 
 // Numérotation
 export const PREFIXE_NUMERO_DOSSIER = "MIA-";       // MIA-0001

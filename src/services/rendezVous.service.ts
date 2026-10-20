@@ -7,7 +7,7 @@
  */
 import { prisma } from "../config/prisma.js";
 import { SOIGNANTS } from "../config/constants.js";
-import { Orientation, Role, StatutDemandeAcces, StatutPassage, StatutRendezVous } from "../generated/prisma/client.js";
+import { Orientation, OrigineSuivi, Role, StatutDemandeAcces, StatutPassage, StatutRendezVous } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
@@ -15,6 +15,7 @@ import { verifierMotifGrossesse } from "../utils/motifs.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { creerPassageDansTransaction } from "./passages.service.js";
 import { coordonneesVisibles } from "./patients.service.js";
+import { compterSuivis, creerSuiviAutomatique } from "./suivis.service.js";
 
 const FUSEAU = "Indian/Antananarivo";
 const DECALAGE_FUSEAU = "+03:00";
@@ -236,22 +237,33 @@ export async function cloreRendezVous(id: number, statut: "ABSENT" | "ANNULE", a
       entite: "rendez_vous",
       entiteId: id,
     });
+    // R116 : un patient absent est à recontacter, sauf si un suivi existe déjà pour ce rendez-vous (revue).
+    if (statut === "ABSENT") {
+      const dejaSuivi = await tx.suivi.findUnique({ where: { rendezVousId: id }, select: { id: true } });
+      if (!dejaSuivi) {
+        await creerSuiviAutomatique(tx, {
+          patientId: rdv.patientId,
+          motif: rdv.motif,
+          echeance: jourDuCentre(new Date()),
+          origine: OrigineSuivi.RENDEZ_VOUS_ABSENT,
+          rendezVousId: id,
+          creeParId: auteur.id,
+        });
+      }
+    }
   }, OPTIONS_TRANSACTION);
 }
 
-// ---------- Compteurs du menu ----------
 
-/**
- * Compteurs affichés entre parenthèses dans le menu, selon le rôle :
- * - File d'attente : patients en attente (orientés vers le soignant s'il s'agit d'un praticien) ;
- * - Rendez-vous : rendez-vous prévus aujourd'hui (les siens pour Médecin et Sage-femme) ;
- * - Pharmacie & Caisse (Secrétaire) : patients à servir.
- * - Paramètres (Direction) : demandes d'accès en attente (mot de passe oublié).
- * Seuls les compteurs utiles au rôle sont renvoyés.
- */
 export async function lireCompteurs(utilisateur: UtilisateurConnecte) {
   const { debut, fin } = bornesDuJour(jourDuCentre(new Date()));
-  const compteurs: { fileAttente?: number; rendezVous?: number; pharmacieCaisse?: number; parametres?: number } = {};
+  const compteurs: {
+    fileAttente?: number;
+    rendezVous?: number;
+    pharmacieCaisse?: number;
+    parametres?: number;
+    suivis?: number;
+  } = {};
   const role = utilisateur.role;
 
   if (role === Role.SECRETAIRE || estClinicien(role)) {
@@ -270,6 +282,8 @@ export async function lireCompteurs(utilisateur: UtilisateurConnecte) {
         ...(voitSeulementLesSiens(role) ? { praticienId: utilisateur.id } : {}),
       },
     });
+    const suivis = await compterSuivis();
+    compteurs.suivis = suivis.aContacter + suivis.enRetard;
   }
   if (role === Role.SECRETAIRE) {
     compteurs.pharmacieCaisse = await prisma.passage.count({
