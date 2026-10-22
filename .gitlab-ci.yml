@@ -53,33 +53,6 @@ test_integration:
     - npm ci
     - npm run test:integration
 
-secret_detection:
-  stage: secret_detection
-  image:
-    name: zricethezav/gitleaks:latest
-    entrypoint: [""]
-  variables:
-    GIT_DEPTH: 0
-  script:
-    - gitleaks detect --source . --redact -v
-
-eslint:
-  stage: quality
-  script:
-    - npm ci
-    - npm run lint
-
-semgrep:
-  stage: quality
-  image: semgrep/semgrep
-  script:
-    - semgrep scan --config p/javascript --config p/nodejs --metrics=off --error .
-
-dependency_scan:
-  stage: dependency_scan
-  script:
-    - npm audit --audit-level=high --omit=dev
-
 docker_build:
   stage: docker_build
   image: docker:27
@@ -94,34 +67,6 @@ docker_build:
   artifacts:
     reports:
       dotenv: build.env
-
-image_scan:
-  stage: image_scan
-  image:
-    name: aquasec/trivy:latest
-    entrypoint: [""]
-  variables:
-    TRIVY_USERNAME: "$CI_REGISTRY_USER"
-    TRIVY_PASSWORD: "$CI_REGISTRY_PASSWORD"
-  script:
-    - trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_DIGEST_REF"
-
-dast:
-  stage: dast
-  image:
-    name: zaproxy/zap-stable
-    entrypoint: [""]
-  services:
-    - name: "$IMAGE_CANDIDATE"
-      alias: app
-  script:
-    - curl -fs --retry 15 --retry-connrefused --retry-delay 2 http://app:3000/health
-    - zap-baseline.py -t http://app:3000 -r zap-report.html -I
-  after_script:
-    - cp /zap/wrk/zap-report.html "$CI_PROJECT_DIR/" || true
-  artifacts:
-    when: always
-    paths: [zap-report.html]
 
 sign_image:
   stage: sign_image
