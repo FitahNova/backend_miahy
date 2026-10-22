@@ -1,0 +1,114 @@
+include:
+  - project: 'miahy1/ci-templates'
+    file:
+      - /code-quality.yml
+      - /security-scan.yml
+      - /container-scan.yml
+
+stages:
+  - build
+  - test
+  - secret_detection
+  - quality
+  - dependency_scan
+  - docker_build
+  - image_scan
+  - dast
+  - sign_image
+  - push
+  - deploy
+
+default:
+  image: node:22-alpine
+  cache:
+    key:
+      files: [package-lock.json]
+    paths: [.npm/]
+  tags:
+    - archlinux
+
+variables:
+  npm_config_cache: "$CI_PROJECT_DIR/.npm"
+  IMAGE_CANDIDATE: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+
+.on_main: &on_main
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+build:
+  stage: build
+  script:
+    - npm ci
+    - npm run build --if-present
+
+test_unit:
+  stage: test
+  script:
+    - npm ci
+    - npm run test:unit
+
+test_integration:
+  stage: test
+  script:
+    - npm ci
+    - npm run test:integration
+
+docker_build:
+  stage: docker_build
+  image: docker:27
+  services: [docker:27-dind]
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker build -t "$IMAGE_CANDIDATE" .
+    - docker push "$IMAGE_CANDIDATE"
+    - echo "IMAGE_DIGEST_REF=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE_CANDIDATE")" > build.env
+  artifacts:
+    reports:
+      dotenv: build.env
+
+sign_image:
+  stage: sign_image
+  image: alpine:3.20
+  <<: *on_main
+  before_script:
+    - apk add --no-cache cosign
+  script:
+    - cosign login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD"
+    - cosign sign --yes --key "$COSIGN_PRIVATE_KEY" "$IMAGE_DIGEST_REF"
+
+push:
+  stage: push
+  image: docker:27
+  services: [docker:27-dind]
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  <<: *on_main
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker pull "$IMAGE_DIGEST_REF"
+    - docker tag "$IMAGE_DIGEST_REF" "$CI_REGISTRY_IMAGE:latest"
+    - docker push "$CI_REGISTRY_IMAGE:latest"
+
+deploy:
+  stage: deploy
+  image: python:3.12-alpine
+  when: manual
+  <<: *on_main
+  environment:
+    name: production
+  before_script:
+    - apk add --no-cache openssh-client cosign
+    - pip install --no-cache-dir ansible-core
+    - ansible-galaxy collection install community.docker
+    - chmod 600 "$SSH_PRIVATE_KEY"
+  script:
+    - cosign verify --key "$COSIGN_PUBLIC_KEY" "$IMAGE_DIGEST_REF"
+    - >
+      ansible-playbook -i "$DEPLOY_HOST," -u "$DEPLOY_USER"
+      --private-key "$SSH_PRIVATE_KEY"
+      -e "image=$IMAGE_DIGEST_REF registry=$CI_REGISTRY registry_user=gitlab-ci-token registry_password=$CI_JOB_TOKEN"
+      ansible/deploy.yml
+  variables:
+    ANSIBLE_HOST_KEY_CHECKING: "False"
