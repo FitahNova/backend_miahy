@@ -1,1 +1,22 @@
 node_modules/
+
+/src/generated/prisma/
+
+# Identifiants de test : jamais dans le dépôt
+connexion.json
+.env
+
+.env.*
+!.env.example
+cookies.txt
+
+*.log
+
+.agents/
+_reporte/
+contexte.zip
+skills-lock.json
+# Documents partenaires déposés en local (données réelles) et réglages d'éditeurs
+stockage/
+.claude/
+.windsurf/
