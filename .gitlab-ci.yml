@@ -74,7 +74,7 @@ semgrep:
   stage: quality
   image: semgrep/semgrep
   script:
-    - semgrep scan --config auto --metrics=off --error .
+    - semgrep scan --config auto --error .
 
 dependency_scan:
   stage: dependency_scan
