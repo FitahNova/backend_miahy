@@ -416,12 +416,22 @@ model SessionUtilisateur {
   id            Int         @id @default(autoincrement())
   utilisateurId Int         @map("utilisateur_id")
   refreshHache  String      @unique @map("refresh_hache") @db.VarChar(64)
-  creeLe        DateTime    @default(now()) @map("cree_le")
-  expireLe      DateTime    @map("expire_le")
-  revoqueLe     DateTime?   @map("revoque_le")
-  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+  creeLe           DateTime    @default(now()) @map("cree_le")
+  expireLe         DateTime    @map("expire_le")
+  // Dernier geste de la personne (souris, clavier). Une requête seule ne la repousse pas.
+  derniereActivite DateTime    @default(now()) @map("derniere_activite") @db.Timestamptz(6)
+  revoqueLe        DateTime?   @map("revoque_le")
+  utilisateur      Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
 
   @@map("session_utilisateur")
+}
+
+// Une seule ligne (id = 1) : réglages du centre lus par toutes les sessions.
+model ParametreCentre {
+  id                     Int @id
+  dureeInactiviteMinutes Int @default(15) @map("duree_inactivite_minutes")
+
+  @@map("parametre_centre")
 }
 
 model JetonUsage {

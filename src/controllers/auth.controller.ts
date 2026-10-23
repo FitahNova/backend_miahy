@@ -24,7 +24,7 @@ const schemaConnexion = z.object({
 export async function connexion(requete: Request, reponse: Response) {
   const { identifiant, motDePasse } = schemaConnexion.parse(requete.body);
   const session = await connecterUtilisateur(identifiant, motDePasse);
-  poserCookiesSession(reponse, session.jeton, session.refreshToken, session.expireLe);
+  poserCookiesSession(reponse, session.jeton, session.refreshToken, session.expireLe, session.dureeInactiviteMinutes);
   reponse.json({ etape: "CONNECTE", utilisateur: session.utilisateur });
 }
 

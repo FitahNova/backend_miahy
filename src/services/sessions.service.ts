@@ -4,19 +4,27 @@ import { DUREE_SESSION_HEURES } from "../config/constants.js";
 import { signerJeton } from "../middleware/auth.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { journaliserConnexion } from "./journal.service.js";
+import { activiteAEnregistrer, sessionInactive } from "./inactivite.js";
+import { cloturerPourInactivite, lireDureeInactiviteMinutes } from "./inactivite.service.js";
 
 // Un refresh token est une valeur aléatoire longue : un hachage SHA-256 suffit (pas besoin de bcrypt).
 function hacher(valeur: string): string {
   return createHash("sha256").update(valeur).digest("hex");
 }
 
-export async function creerSession(utilisateurId: number) {
+export async function creerSession(utilisateurId: number, derniereActivite?: Date) {
   const refreshToken = randomBytes(32).toString("base64url");
   const expireLe = new Date(Date.now() + DUREE_SESSION_HEURES * 60 * 60 * 1000);
-  await prisma.sessionUtilisateur.create({
-    data: { utilisateurId, refreshHache: hacher(refreshToken), expireLe },
+  const creee = await prisma.sessionUtilisateur.create({
+    data: {
+      utilisateurId,
+      refreshHache: hacher(refreshToken),
+      expireLe,
+      ...(derniereActivite ? { derniereActivite } : {}),
+    },
+    select: { id: true },
   });
-  return { refreshToken, expireLe };
+  return { id: creee.id, refreshToken, expireLe };
 }
 
 /**
@@ -28,9 +36,14 @@ export async function ouvrirSession(utilisateurId: number) {
     where: { id: utilisateurId },
     select: { id: true, civilite: true, nom: true, prenom: true, email: true, role: true, versionSession: true },
   });
+  const duree = await lireDureeInactiviteMinutes();
   const session = await creerSession(utilisateur.id);
   return {
-    jeton: signerJeton({ id: utilisateur.id, role: utilisateur.role, versionSession: utilisateur.versionSession }),
+    jeton: signerJeton(
+      { id: utilisateur.id, role: utilisateur.role, versionSession: utilisateur.versionSession, sessionId: session.id },
+      duree,
+    ),
+    dureeInactiviteMinutes: duree,
     utilisateur: {
       id: utilisateur.id,
       civilite: utilisateur.civilite,
@@ -84,6 +97,12 @@ export async function rafraichirSession(refreshToken: string) {
     throw new ErreurHttp(401, "SESSION_EXPIREE");
   }
 
+  const duree = await lireDureeInactiviteMinutes();
+  if (sessionInactive(session.derniereActivite, duree, new Date())) {
+    await cloturerPourInactivite(session.id, utilisateur.id);
+    throw new ErreurHttp(401, "SESSION_EXPIREE");
+  }
+
   if (!utilisateur.actif) {
     await revoquerToutesLesSessions(utilisateur.id);
     throw new ErreurHttp(401, "COMPTE_DESACTIVE");
@@ -99,13 +118,19 @@ export async function rafraichirSession(refreshToken: string) {
     throw new ErreurHttp(401, "SESSION_COMPROMISE");
   }
 
-  const nouvelle = await creerSession(utilisateur.id);
+  // Le renouvellement ne compte pas comme un geste : l'horloge d'inactivité continue.
+  const nouvelle = await creerSession(utilisateur.id, session.derniereActivite);
   return {
-    jeton: signerJeton({
-      id: utilisateur.id,
-      role: utilisateur.role,
-      versionSession: utilisateur.versionSession,
-    }),
+    jeton: signerJeton(
+      {
+        id: utilisateur.id,
+        role: utilisateur.role,
+        versionSession: utilisateur.versionSession,
+        sessionId: nouvelle.id,
+      },
+      duree,
+    ),
+    dureeInactiviteMinutes: duree,
     // Même forme que /api/auth/moi : le front remplace la session sans transformation.
     utilisateur: {
       id: utilisateur.id,
@@ -135,4 +160,46 @@ export async function revoquerSession(refreshToken: string): Promise<number | nu
   ]);
 
   return session.utilisateurId;
+}
+
+/**
+ * Un geste (souris, clavier, toucher) repousse l'échéance et renouvelle le jeton d'accès.
+ * Le refresh token n'est pas tourné : plusieurs gestes rapprochés ne doivent pas se couper.
+ */
+export async function signalerActivite(refreshToken: string) {
+  const session = await prisma.sessionUtilisateur.findUnique({
+    where: { refreshHache: hacher(refreshToken) },
+    include: { utilisateur: { select: { id: true, role: true, actif: true, versionSession: true } } },
+  });
+  if (!session || session.revoqueLe || session.expireLe < new Date() || !session.utilisateur.actif) {
+    throw new ErreurHttp(401, "SESSION_EXPIREE");
+  }
+
+  const duree = await lireDureeInactiviteMinutes();
+  const maintenant = new Date();
+  if (sessionInactive(session.derniereActivite, duree, maintenant)) {
+    await cloturerPourInactivite(session.id, session.utilisateurId);
+    throw new ErreurHttp(401, "SESSION_EXPIREE");
+  }
+
+  if (activiteAEnregistrer(session.derniereActivite, maintenant)) {
+    await prisma.sessionUtilisateur.updateMany({
+      where: { id: session.id, revoqueLe: null },
+      data: { derniereActivite: maintenant },
+    });
+  }
+
+  const utilisateur = session.utilisateur;
+  return {
+    dureeInactiviteMinutes: duree,
+    jeton: signerJeton(
+      {
+        id: utilisateur.id,
+        role: utilisateur.role,
+        versionSession: utilisateur.versionSession,
+        sessionId: session.id,
+      },
+      duree,
+    ),
+  };
 }
