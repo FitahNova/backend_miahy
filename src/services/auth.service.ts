@@ -47,9 +47,7 @@ export async function connecterUtilisateur(identifiant: string, motDePasse: stri
   const maintenant = new Date();
   if (utilisateur.verrouilleJusqua && utilisateur.verrouilleJusqua > maintenant) {
     await journaliser(utilisateur.id, "CONNEXION_ECHEC", { raison: "Compte verrouillé" });
-    throw new ErreurHttp(423, "COMPTE_VERROUILLE", {
-      secondesRestantes: Math.ceil((utilisateur.verrouilleJusqua.getTime() - maintenant.getTime()) / 1000),
-    });
+    throw new ErreurHttp(423, "COMPTE_VERROUILLE");
   }
 
   const motDePasseValide = await bcrypt.compare(motDePasse, utilisateur.motDePasseHash);
@@ -68,10 +66,6 @@ export async function connecterUtilisateur(identifiant: string, motDePasse: stri
           tentativesEchec: 0,
           verrouilleJusqua: new Date(maintenant.getTime() + DUREE_VERROUILLAGE_MINUTES * 60 * 1000),
         },
-      });
-      await journaliser(utilisateur.id, "CONNEXION_ECHEC", { raison: "Compte verrouillé" });
-      throw new ErreurHttp(423, "COMPTE_VERROUILLE", {
-        secondesRestantes: DUREE_VERROUILLAGE_MINUTES * 60,
       });
     }
 
