@@ -15,6 +15,7 @@ routeur.use(exigerConnexion);
 routeur.get("/", gererAsync(listerPatients));          // recherche : ?q=nom ou téléphone
 routeur.get("/:id", gererAsync(obtenirPatient));
 routeur.post("/", exigerRole(Role.SECRETAIRE, Role.DIRECTION), gererAsync(creerPatient));
-routeur.patch("/:id", exigerRole(Role.SECRETAIRE, Role.DIRECTION), gererAsync(modifierPatient));
+// Maquette : tous les rôles modifient la fiche ; la partie clinique est filtrée dans le contrôleur.
+routeur.patch("/:id", gererAsync(modifierPatient));
 
 export default routeur;

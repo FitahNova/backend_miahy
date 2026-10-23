@@ -11,9 +11,10 @@ const routeur = Router();
 routeur.use(exigerConnexion);
 
 routeur.get("/compteurs", gererAsync(compteurs));
-routeur.get("/praticiens", exigerRole(Role.SECRETAIRE, ...SOIGNANTS), gererAsync(praticiens));
+routeur.get("/praticiens", exigerRole(Role.SECRETAIRE, Role.DIRECTION, ...SOIGNANTS), gererAsync(praticiens));
 routeur.get("/", exigerRole(Role.SECRETAIRE, ...SOIGNANTS), gererAsync(lister));
-routeur.post("/", exigerRole(Role.SECRETAIRE, ...SOIGNANTS), gererAsync(creer));
+// « + RDV » depuis le dossier patient : ouvert aussi à la Direction (maquette).
+routeur.post("/", exigerRole(Role.SECRETAIRE, Role.DIRECTION, ...SOIGNANTS), gererAsync(creer));
 routeur.post("/:id/venu", exigerRole(Role.SECRETAIRE), gererAsync(venu));
 routeur.post("/:id/cloture", exigerRole(Role.SECRETAIRE, ...SOIGNANTS), gererAsync(clore));
 

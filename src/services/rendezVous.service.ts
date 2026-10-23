@@ -100,7 +100,7 @@ export async function listerRendezVous(filtre: { du: string; au: string }, utili
   for (const visite of visites) if (!derniere.has(visite.patientId)) derniere.set(visite.patientId, visite);
 
   const clinicien = estClinicien(utilisateur.role);
-  const telephoneVisible = coordonneesVisibles(utilisateur.role) && !voitSeulementLesSiens(utilisateur.role);
+  const telephoneVisible = coordonneesVisibles(utilisateur.role);
   return rendezVous.map(({ patient, ...rdv }) => {
     const visite = derniere.get(patient.id);
     return {

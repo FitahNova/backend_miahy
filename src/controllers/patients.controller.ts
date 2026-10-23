@@ -6,6 +6,8 @@ import {
   modifierPatientExistant,
   obtenirPatientParIdentifiant,
 } from "../services/patients.service.js";
+import { estClinique } from "../services/dossier.service.js";
+import { ErreurHttp } from "../utils/errors.js";
 import { champNom, champPrenom, champsNaissance, naissanceDepuisSaisie, regleNaissance } from "../utils/identite.js";
 import { lireIdentifiant, lireUtilisateur } from "../utils/parametres.js";
 
@@ -21,7 +23,14 @@ const champsPatient = {
   programmeId: z.number().int().positive().nullish(),
   contactConfiance: z.string().trim().max(255).nullish(),
   financement: z.string().trim().min(1).max(30).optional(),
+  contactAutorise: z.string().trim().max(50).nullish(),
+  maladies: z.string().trim().max(2000).nullish(),
+  traitements: z.string().trim().max(2000).nullish(),
+  sensible: z.boolean().optional(),
 };
+
+// Partie clinique de la fiche : modifiable par tous les rôles sauf la Direction (maquette).
+const CHAMPS_CLINIQUES = ["allergies", "maladies", "traitements", "sensible"] as const;
 
 const schemaModificationPatient = z
   .object(champsPatient)
@@ -29,14 +38,21 @@ const schemaModificationPatient = z
   .extend({ actif: z.boolean().optional() })
   .superRefine(regleNaissance(false));
 
-const schemaRecherche = z.object({ q: z.string().optional() });
+// Filtres de la liste ; « complet=1 » lève la limite d'affichage (impression de la liste filtrée).
+const schemaRecherche = z.object({
+  q: z.string().optional(),
+  programmeId: z.coerce.number().int().positive().optional(),
+  sexe: z.enum(["H", "F"]).optional(),
+  tranche: z.enum(["enfant", "adulte", "senior"]).optional(),
+  complet: z.literal("1").optional(),
+});
 
 const lireRole = (requete: Request) => lireUtilisateur(requete).role;
 
 // Les coordonnées sont masquées selon le rôle (R024) : le service reçoit le rôle de l'appelant.
 export async function listerPatients(requete: Request, reponse: Response) {
-  const { q } = schemaRecherche.parse(requete.query);
-  const patients = await listerPatientsParRecherche(lireRole(requete), q);
+  const { q, complet, ...filtres } = schemaRecherche.parse(requete.query);
+  const patients = await listerPatientsParRecherche(lireRole(requete), q, { ...filtres, complet: complet === "1" });
   reponse.json({ patients });
 }
 
@@ -61,10 +77,14 @@ export async function creerPatient(requete: Request, reponse: Response) {
 export async function modifierPatient(requete: Request, reponse: Response) {
   const { age, uniteAge, ...donnees } = schemaModificationPatient.parse(requete.body);
   const dateNaissance = naissanceDepuisSaisie({ dateNaissance: donnees.dateNaissance, age, uniteAge });
+  const utilisateur = lireUtilisateur(requete);
+  if (!estClinique(utilisateur.role) && CHAMPS_CLINIQUES.some((champ) => donnees[champ] !== undefined)) {
+    throw new ErreurHttp(403, "CHAMPS_CLINIQUES_INTERDITS");
+  }
   const patient = await modifierPatientExistant(
     lireIdentifiant(requete.params.id),
     { ...donnees, dateNaissance },
-    lireUtilisateur(requete).id,
+    utilisateur.id,
   );
   reponse.json({ patient });
 }

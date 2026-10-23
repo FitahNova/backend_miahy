@@ -80,6 +80,7 @@ model Utilisateur {
   demandesAcces       DemandeAcces[] @relation("DemandesAcces")
   demandesTraitees    DemandeAcces[] @relation("DemandesTraitees")
   suivisCrees         Suivi[]        @relation("SuivisCrees")
+  correctionsConsultation CorrectionConsultation[]
   suivisClotures      Suivi[]        @relation("SuivisClotures")
   contactsSuivi       ContactSuivi[]
   versementsPartenaires VersementPartenaire[]
@@ -154,6 +155,12 @@ model Patient {
   programme        Programme? @relation(fields: [programmeId], references: [id])
   contactConfiance String?    @map("contact_confiance") @db.VarChar(255)
   financement      String     @default("Personnel") @db.VarChar(30)
+  // Fiche clinique (maquette) : maladies et traitements en texte libre, contact autorisé (Appel, SMS…).
+  maladies         String?    @db.Text
+  traitements      String?    @db.Text
+  contactAutorise  String?    @map("contact_autorise") @db.VarChar(50)
+  // Dossier sensible : données cliniques réservées aux soignants.
+  sensible         Boolean    @default(false)
   actif            Boolean    @default(true)
   creeLe           DateTime   @default(now()) @map("cree_le") @db.Timestamptz(6)
   passages         Passage[]
@@ -206,8 +213,23 @@ model Consultation {
   signeeLe        DateTime? @map("signee_le") @db.Timestamptz(6)
   // Rendez-vous de revue créés à la signature (« Ce patient doit-il être revu ? »).
   rendezVousRevue RendezVous[]
+  corrections     CorrectionConsultation[]
 
   @@map("consultation")
+}
+
+// Correction tracée d'une consultation signée : le texte d'origine reste intact, la correction s'ajoute.
+model CorrectionConsultation {
+  id             Int          @id @default(autoincrement())
+  consultationId Int          @map("consultation_id")
+  consultation   Consultation @relation(fields: [consultationId], references: [id])
+  auteurId       Int          @map("auteur_id")
+  auteur         Utilisateur  @relation(fields: [auteurId], references: [id])
+  texte          String       @db.Text
+  creeLe         DateTime     @default(now()) @map("cree_le") @db.Timestamptz(6)
+
+  @@index([consultationId])
+  @@map("correction_consultation")
 }
 
 model Ordonnance {

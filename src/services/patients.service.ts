@@ -11,6 +11,32 @@ import { enregistrerAudit } from "./audit.service.js";
 const NOMBRE_CHIFFRES_NUMERO_DOSSIER = 4; // MIA-0001 : 8 caractères au total
 const NOMBRE_ESSAIS_CREATION = 3;
 const LIMITE_RESULTATS_RECHERCHE = 50;
+const LIMITE_LISTE_COMPLETE = 2000; // liste filtrée à imprimer
+const AGE_FIN_ENFANCE = 15;
+const AGE_SENIOR = 60;
+
+export type TrancheAge = "enfant" | "adulte" | "senior";
+
+export interface FiltresPatients {
+  programmeId?: number;
+  sexe?: "H" | "F";
+  tranche?: TrancheAge;
+  complet?: boolean;
+}
+
+// Date de naissance d'une personne qui a « ans » ans aujourd'hui.
+function neIlYA(ans: number): Date {
+  const date = new Date();
+  date.setUTCFullYear(date.getUTCFullYear() - ans);
+  return date;
+}
+
+// Enfant : moins de 15 ans ; adulte : 15 à 59 ans ; senior : 60 ans et plus.
+function filtreTranche(tranche: TrancheAge): Prisma.PatientWhereInput {
+  if (tranche === "enfant") return { dateNaissance: { gt: neIlYA(AGE_FIN_ENFANCE) } };
+  if (tranche === "senior") return { dateNaissance: { lte: neIlYA(AGE_SENIOR) } };
+  return { dateNaissance: { gt: neIlYA(AGE_SENIOR), lte: neIlYA(AGE_FIN_ENFANCE) } };
+}
 const NOMBRE_MINIMAL_CHIFFRES_TELEPHONE = 3;
 
 // Le téléphone est déjà normalisé par ce service : on accepte la saisie brute, et on la transforme ici.
@@ -88,8 +114,9 @@ function construireFiltreRecherche(recherche: string | undefined): Prisma.Patien
   };
 }
 
-// R024 : téléphone, adresse et contact de confiance masqués pour le Médecin et la Sage-femme.
-const ROLES_SANS_COORDONNEES: Role[] = [Role.MEDECIN, Role.SAGE_FEMME];
+// R024 : rôles qui ne voient pas téléphone, adresse ni contact de confiance.
+// Liste vide depuis le 21/10/2026 : tous les rôles voient les coordonnées (demande du lead).
+const ROLES_SANS_COORDONNEES: Role[] = [];
 
 export function coordonneesVisibles(role: Role): boolean {
   return !ROLES_SANS_COORDONNEES.includes(role);
@@ -102,12 +129,19 @@ export function masquerCoordonnees<
   return { ...patient, telephone: null, adresse: null, contactConfiance: null };
 }
 
-export async function listerPatientsParRecherche(role: Role, recherche?: string) {
+export async function listerPatientsParRecherche(role: Role, recherche?: string, filtres: FiltresPatients = {}) {
   const patients = await prisma.patient.findMany({
-    where: construireFiltreRecherche(recherche),
+    where: {
+      AND: [
+        construireFiltreRecherche(recherche),
+        filtres.programmeId ? { programmeId: filtres.programmeId } : {},
+        filtres.sexe ? { sexe: filtres.sexe } : {},
+        filtres.tranche ? filtreTranche(filtres.tranche) : {},
+      ],
+    },
     include: { programme: { select: { id: true, nom: true } } },
     orderBy: [{ nom: "asc" }, { prenom: "asc" }],
-    take: LIMITE_RESULTATS_RECHERCHE,
+    take: filtres.complet ? LIMITE_LISTE_COMPLETE : LIMITE_RESULTATS_RECHERCHE,
   });
   return patients.map((patient) => masquerCoordonnees(patient, role));
 }
