@@ -4,7 +4,7 @@ import { estEnProduction } from "../config/env.js";
 
 // Deux cookies httpOnly : le JavaScript du navigateur ne peut lire ni l'un ni l'autre.
 // - jeton d'accès (JWT court) : envoyé à toute l'API ;
-// - refresh token (aléatoire, 12 h) : envoyé seulement aux routes /api/auth.
+// - refresh token (aléatoire, 72 h) : envoyé seulement aux routes /api/auth.
 export const NOM_COOKIE_SESSION = "miahy_session";
 export const NOM_COOKIE_REFRESH = "miahy_refresh";
 const CHEMIN_REFRESH = "/api/auth";

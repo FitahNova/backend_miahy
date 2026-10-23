@@ -3,7 +3,7 @@ import { Role } from "../generated/prisma/client.js";
 export const MAX_ECHECS_CONNEXION = 5;              // tentatives avant verrouillage
 export const DUREE_VERROUILLAGE_MINUTES = 15;
 export const DUREE_JETON_ACCES_MINUTES = 15;        // JWT et cookie d'accès : renouvelés par /api/auth/rafraichir
-export const DUREE_SESSION_HEURES = 12;             // refresh token : une journée de travail
+export const DUREE_SESSION_HEURES = 72;             // une session dure 72 h depuis la connexion, sans déconnexion pour inactivité
 export const FENETRE_LIMITE_CONNEXION_MINUTES = 15;
 export const MAX_REQUETES_CONNEXION = 20;           // par fenêtre
 export const DUREE_LIEN_MOT_DE_PASSE_HEURES = 8;    // lien d'activation ou de réinitialisation (décision du 14/10/2026)

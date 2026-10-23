@@ -10,9 +10,16 @@ function hacher(valeur: string): string {
   return createHash("sha256").update(valeur).digest("hex");
 }
 
-export async function creerSession(utilisateurId: number) {
+// Délai pendant lequel un refresh token qui vient d'être remplacé n'est pas pris pour un vol :
+// deux onglets (ou deux requêtes) peuvent renouveler la session presque en même temps.
+const DELAI_RENOUVELLEMENT_SIMULTANE_MS = 30_000;
+
+// Une session dure 72 h depuis la connexion : un renouvellement garde la même échéance.
+export async function creerSession(
+  utilisateurId: number,
+  expireLe = new Date(Date.now() + DUREE_SESSION_HEURES * 60 * 60 * 1000),
+) {
   const refreshToken = randomBytes(32).toString("base64url");
-  const expireLe = new Date(Date.now() + DUREE_SESSION_HEURES * 60 * 60 * 1000);
   await prisma.sessionUtilisateur.create({
     data: { utilisateurId, refreshHache: hacher(refreshToken), expireLe },
   });
@@ -73,6 +80,10 @@ export async function rafraichirSession(refreshToken: string) {
   const utilisateur = session.utilisateur;
 
   if (session.revoqueLe) {
+    // Remplacé il y a quelques secondes par un autre onglet : pas un vol, le nouveau cookie est déjà posé.
+    if (Date.now() - session.revoqueLe.getTime() < DELAI_RENOUVELLEMENT_SIMULTANE_MS) {
+      throw new ErreurHttp(409, "SESSION_DEJA_RENOUVELEE");
+    }
     await revoquerToutesLesSessions(utilisateur.id);
     await journaliserConnexion(utilisateur.id, "CONNEXION_ECHEC", {
       raison: "Refresh token réutilisé : toutes les sessions révoquées",
@@ -94,12 +105,12 @@ export async function rafraichirSession(refreshToken: string) {
     where: { id: session.id, revoqueLe: null },
     data: { revoqueLe: new Date() },
   });
+  // Un autre renouvellement vient de passer à l'instant : même cas que ci-dessus.
   if (coupee.count === 0) {
-    await revoquerToutesLesSessions(utilisateur.id);
-    throw new ErreurHttp(401, "SESSION_COMPROMISE");
+    throw new ErreurHttp(409, "SESSION_DEJA_RENOUVELEE");
   }
 
-  const nouvelle = await creerSession(utilisateur.id);
+  const nouvelle = await creerSession(utilisateur.id, session.expireLe);
   return {
     jeton: signerJeton({
       id: utilisateur.id,
