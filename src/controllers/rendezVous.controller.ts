@@ -48,7 +48,7 @@ export async function creer(requete: Request, reponse: Response) {
   reponse.status(201).json({ rendezVous: rdv });
 }
 
-/** POST /api/rendez-vous/:id/venu — crée le passage dans la file. */
+/** POST /api/rendez-vous/:id/venu : crée le passage dans la file. */
 export async function venu(requete: Request, reponse: Response) {
   const id = lireIdentifiant(requete.params.id);
   const resultat = await marquerVenu(id, lireUtilisateur(requete));
@@ -59,7 +59,7 @@ export async function venu(requete: Request, reponse: Response) {
   reponse.json(resultat);
 }
 
-/** POST /api/rendez-vous/:id/cloture — absent ou annulé. */
+/** POST /api/rendez-vous/:id/cloture : absent ou annulé. */
 export async function clore(requete: Request, reponse: Response) {
   const id = lireIdentifiant(requete.params.id);
   const { statut } = schemaCloture.parse(requete.body);
@@ -70,7 +70,7 @@ export async function clore(requete: Request, reponse: Response) {
   reponse.status(204).end();
 }
 
-/** GET /api/rendez-vous/compteurs — compteurs du menu pour le rôle connecté. */
+/** GET /api/rendez-vous/compteurs : compteurs du menu pour le rôle connecté. */
 export async function compteurs(requete: Request, reponse: Response) {
   reponse.json(await lireCompteurs(lireUtilisateur(requete)));
 }

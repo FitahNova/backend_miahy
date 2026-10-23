@@ -41,18 +41,18 @@ function lireUtilisateurId(requete: Request): number {
   return Number(requete.utilisateur.id);
 }
 
-/** GET /api/factures — historique filtré et paginé. */
+/** GET /api/factures : historique filtré et paginé. */
 export async function listerHistoriqueFactures(requete: Request, reponse: Response) {
   const { q, ...filtres } = schemaFiltres.parse(requete.query);
   reponse.json(await listerFactures({ ...filtres, recherche: q }));
 }
 
-/** GET /api/factures/:factureId — détail complet. */
+/** GET /api/factures/:factureId : détail complet. */
 export async function obtenirDetailFacture(requete: Request, reponse: Response) {
   reponse.json({ facture: await obtenirFacture(lireIdentifiant(requete.params.factureId)) });
 }
 
-/** POST /api/factures/:factureId/annulation — Direction seule (contrôlé par la route). */
+/** POST /api/factures/:factureId/annulation : Direction seule (contrôlé par la route). */
 export async function annulerUneFacture(requete: Request, reponse: Response) {
   const { motif } = schemaAnnulation.parse(requete.body);
   const resultat = await annulerFacture(lireIdentifiant(requete.params.factureId), motif, lireUtilisateurId(requete));

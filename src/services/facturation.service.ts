@@ -320,7 +320,7 @@ const STATUTS_ANNULABLES: StatutFacture[] = [StatutFacture.PHARMACIE, StatutFact
 /**
  * Annule une facture non payée (Direction seule, contrôlé par la route).
  * Dans une seule transaction : verrou de la facture, retour en stock des médicaments facturés
- * (mouvement RETOUR, jamais de suppression — R065), quantité délivrée de l'ordonnance remise à jour,
+ * (mouvement RETOUR, jamais de suppression, R065), quantité délivrée de l'ordonnance remise à jour,
  * statut ANNULEE, puis statuts du passage recalculés (terminé s'il n'a plus aucune facture ouverte).
  * Hypothèse provisoire (à valider avec la Direction) : le patient repart sans payer, son passage est terminé.
  * @throws ErreurHttp 404 FACTURE_INTROUVABLE, 409 FACTURE_NON_ANNULABLE

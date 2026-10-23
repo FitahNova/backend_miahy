@@ -10,7 +10,7 @@ function lireRole(requete: Request) {
   return requete.utilisateur.role;
 }
 
-/** GET /api/tableau-de-bord — blocs du jour et du mois, programmes, alertes. */
+/** GET /api/tableau-de-bord : blocs du jour et du mois, programmes, alertes. */
 export async function synthese(requete: Request, reponse: Response) {
   reponse.json(await obtenirSynthese(lireRole(requete)));
 }

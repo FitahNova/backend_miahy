@@ -70,7 +70,7 @@ export async function creer(requete: Request, reponse: Response) {
   reponse.status(201).json({ suivi });
 }
 
-/** POST /api/suivis/:id/contacts — appel ou message noté. */
+/** POST /api/suivis/:id/contacts : appel ou message noté. */
 export async function contacter(requete: Request, reponse: Response) {
   const id = lireIdentifiant(requete.params.id);
   const contact = await noterContact(id, schemaContact.parse(requete.body), lireUtilisateur(requete));

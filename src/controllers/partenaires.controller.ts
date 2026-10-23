@@ -88,7 +88,7 @@ export async function mettreAJourPartenaire(requete: Request, reponse: Response)
   reponse.json({ partenaire: await modifierPartenaire(lireIdentifiant(requete.params.id), donnees, lireAuteur(requete)) });
 }
 
-/** PATCH /api/partenaires/:id/actif — suspendre ou réactiver. */
+/** PATCH /api/partenaires/:id/actif : suspendre ou réactiver. */
 export async function basculerActifPartenaire(requete: Request, reponse: Response) {
   const { actif } = schemaActif.parse(requete.body);
   reponse.json({ partenaire: await changerActifPartenaire(lireIdentifiant(requete.params.id), actif, lireAuteur(requete)) });
@@ -111,7 +111,7 @@ export async function renommerCategorie(requete: Request, reponse: Response) {
   reponse.json({ categorie: await renommerCategoriePartenaire(lireIdentifiant(requete.params.id), nom, lireAuteur(requete)) });
 }
 
-/** POST /api/partenaires/:id/documents — fichier en base64 (5 Mo au plus). */
+/** POST /api/partenaires/:id/documents : fichier en base64 (5 Mo au plus). */
 export async function joindreDocument(requete: Request, reponse: Response) {
   const fichier = schemaDocument.parse(requete.body);
   reponse
@@ -119,7 +119,7 @@ export async function joindreDocument(requete: Request, reponse: Response) {
     .json({ document: await ajouterDocumentPartenaire(lireIdentifiant(requete.params.id), fichier, lireAuteur(requete)) });
 }
 
-/** GET /api/partenaires/documents/:documentId — téléchargement (ouverture dans le navigateur). */
+/** GET /api/partenaires/documents/:documentId : téléchargement (ouverture dans le navigateur). */
 export async function telechargerDocument(requete: Request, reponse: Response) {
   const document = await lireDocumentPartenaire(lireIdentifiant(requete.params.documentId));
   reponse.setHeader("Content-Type", document.typeMime);

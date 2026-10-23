@@ -36,12 +36,12 @@ function lireUtilisateurId(requete: Request): number {
   return Number(requete.utilisateur.id);
 }
 
-/** GET /api/pharmacie — patients à servir au comptoir (délivrance et encaissement). */
+/** GET /api/pharmacie : patients à servir au comptoir (délivrance et encaissement). */
 export async function listerPassagesPharmacie(_requete: Request, reponse: Response) {
   reponse.json({ passages: await listerPassagesAuComptoir() });
 }
 
-/** POST /api/pharmacie/passage/:passageId/delivrance — délivrance partielle possible, avec ajouts. */
+/** POST /api/pharmacie/passage/:passageId/delivrance : délivrance partielle possible, avec ajouts. */
 export async function delivrer(requete: Request, reponse: Response) {
   const donnees = schemaDelivrance.parse(requete.body);
   const resultat = await delivrerAuComptoir(lireIdentifiant(requete.params.passageId), donnees, lireUtilisateurId(requete));
@@ -52,7 +52,7 @@ export async function delivrer(requete: Request, reponse: Response) {
   reponse.json(resultat);
 }
 
-/** DELETE /api/pharmacie/lignes-facture/:ligneId — retrait d'un ajout hors ordonnance non payé. */
+/** DELETE /api/pharmacie/lignes-facture/:ligneId : retrait d'un ajout hors ordonnance non payé. */
 export async function retirerLigne(requete: Request, reponse: Response) {
   const resultat = await retirerLigneHorsOrdonnance(lireIdentifiant(requete.params.ligneId), lireUtilisateurId(requete));
   diffuser(
