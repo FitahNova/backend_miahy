@@ -248,8 +248,11 @@ model LigneOrdonnance {
   id                Int              @id @default(autoincrement())
   ordonnanceId      Int              @map("ordonnance_id")
   ordonnance        Ordonnance       @relation(fields: [ordonnanceId], references: [id])
-  medicamentId      Int              @map("medicament_id")
-  medicament        Medicament       @relation(fields: [medicamentId], references: [id])
+  // Médicament du stock du centre ; vide pour un médicament hors stock (prescription seule, non délivrée, non facturée).
+  medicamentId      Int?             @map("medicament_id")
+  medicament        Medicament?      @relation(fields: [medicamentId], references: [id])
+  // Nom saisi par le praticien pour un médicament hors stock. Contrôle en base : médicament ou libellé.
+  libelle           String?          @db.VarChar(150)
   doseParPrise      Decimal          @map("dose_par_prise") @db.Decimal(4, 2)
   prisesParJour     Int              @map("prises_par_jour") @db.SmallInt
   dureeJours        Int              @map("duree_jours") @db.SmallInt

@@ -32,6 +32,7 @@ export async function obtenirDonneesOrdonnance(passageId: number) {
               dureeJours: true,
               quantitePrescrite: true,
               instruction: true,
+              libelle: true,
               medicament: { select: { nom: true, forme: true } },
             },
           },
@@ -48,7 +49,13 @@ export async function obtenirDonneesOrdonnance(passageId: number) {
     numero: `ORD-${passage.id}`,
     patient: passage.patient,
     prescripteur: passage.ordonnance.prescripteur,
-    lignes: passage.ordonnance.lignes.map((ligne) => ({ ...ligne, doseParPrise: Number(ligne.doseParPrise) })),
+    // Médicament hors stock : le nom saisi par le praticien, sans forme.
+    lignes: passage.ordonnance.lignes.map(({ libelle, medicament, ...ligne }) => ({
+      ...ligne,
+      doseParPrise: Number(ligne.doseParPrise),
+      medicament: medicament ?? { nom: libelle ?? "", forme: "" },
+      horsStock: medicament === null,
+    })),
   };
 }
 
@@ -64,7 +71,9 @@ export async function obtenirBonDeDelivrance(passageId: number) {
       patient: { select: { numeroDossier: true, nom: true, prenom: true } },
       ordonnance: {
         select: {
+          // Le bon de délivrance ne contient que les médicaments du stock du centre.
           lignes: {
+            where: { medicamentId: { not: null } },
             orderBy: { id: "asc" },
             select: {
               id: true,
@@ -92,7 +101,10 @@ export async function obtenirBonDeDelivrance(passageId: number) {
   });
   if (!passage) throw new ErreurHttp(404, "PASSAGE_INTROUVABLE");
 
-  const medicamentIds = passage.ordonnance?.lignes.map((ligne) => ligne.medicament.id) ?? [];
+  const lignesDuStock = (passage.ordonnance?.lignes ?? []).flatMap(({ medicament, ...ligne }) =>
+    medicament ? [{ ...ligne, medicament }] : [],
+  );
+  const medicamentIds = lignesDuStock.map((ligne) => ligne.medicament.id);
   const stocks = await calculerStocks(prisma, medicamentIds);
 
   const horsOrdonnance = passage.factures.flatMap((facture) => facture.lignes);
@@ -103,7 +115,7 @@ export async function obtenirBonDeDelivrance(passageId: number) {
     date: passage.heureArrivee,
     motif: passage.motif,
     patient: passage.patient,
-    lignes: (passage.ordonnance?.lignes ?? []).map((ligne) => ({
+    lignes: lignesDuStock.map((ligne) => ({
       id: ligne.id,
       medicament: ligne.medicament,
       quantitePrescrite: ligne.quantitePrescrite,

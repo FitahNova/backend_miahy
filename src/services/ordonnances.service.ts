@@ -2,12 +2,15 @@ import { prisma } from "../config/prisma.js";
 import { Role, StatutPassage } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
+import { estPerime } from "../utils/peremption.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { journaliserAcces } from "./journal.service.js";
 
 export interface LigneOrdonnanceSaisie {
-  medicamentId: number;
+  /** Médicament du stock du centre. Absent : médicament hors stock, nommé par « libelle » (prescription seule). */
+  medicamentId?: number | null;
+  libelle?: string | null;
   doseParPrise: number;
   prisesParJour: number;
   dureeJours: number;
@@ -40,6 +43,7 @@ const selectionOrdonnance = {
       quantitePrescrite: true,
       quantiteDelivree: true,
       instruction: true,
+      libelle: true,
       medicament: { select: { id: true, nom: true, forme: true } },
     },
     orderBy: { id: "asc" },
@@ -105,13 +109,18 @@ export async function enregistrerOrdonnanceDuPassage(
       return null;
     }
 
-    const identifiants = [...new Set(lignes.map((ligne) => ligne.medicamentId))];
+    // Seuls les médicaments du stock sont vérifiés ; un médicament hors stock n'est ni délivré ni facturé.
+    const identifiants = [...new Set(lignes.flatMap((ligne) => (ligne.medicamentId ? [ligne.medicamentId] : [])))];
     const medicaments = await transaction.medicament.findMany({
       where: { id: { in: identifiants }, actif: true },
-      select: { id: true },
+      select: { id: true, nom: true, datePeremption: true },
     });
     if (medicaments.length !== identifiants.length) {
       throw new ErreurHttp(400, "MEDICAMENT_INACTIF");
+    }
+    const perime = medicaments.find((medicament) => estPerime(medicament.datePeremption));
+    if (perime) {
+      throw new ErreurHttp(400, "MEDICAMENT_PERIME", { medicament: perime.nom });
     }
 
     const ordonnance = await transaction.ordonnance.upsert({
@@ -124,7 +133,8 @@ export async function enregistrerOrdonnanceDuPassage(
     await transaction.ligneOrdonnance.createMany({
       data: lignes.map((ligne) => ({
         ordonnanceId: ordonnance.id,
-        medicamentId: ligne.medicamentId,
+        medicamentId: ligne.medicamentId ?? null,
+        libelle: ligne.medicamentId ? null : (ligne.libelle?.trim() ?? null),
         doseParPrise: ligne.doseParPrise,
         prisesParJour: ligne.prisesParJour,
         dureeJours: ligne.dureeJours,

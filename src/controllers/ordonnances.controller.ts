@@ -4,13 +4,20 @@ import { enregistrerOrdonnanceDuPassage, obtenirOrdonnanceDuPassage } from "../s
 import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
 
-const schemaLigne = z.object({
-  medicamentId: z.number().int().positive(),
-  doseParPrise: z.number().positive().max(99.99),
-  prisesParJour: z.number().int().min(1).max(24),
-  dureeJours: z.number().int().min(1).max(365),
-  instruction: z.string().trim().max(255).nullish(),
-});
+// Une ligne : un médicament du stock (medicamentId) ou un médicament hors stock saisi (libelle), pas les deux.
+const schemaLigne = z
+  .object({
+    medicamentId: z.number().int().positive().nullish(),
+    libelle: z.string().trim().min(2).max(150).nullish(),
+    doseParPrise: z.number().positive().max(99.99),
+    prisesParJour: z.number().int().min(1).max(24),
+    dureeJours: z.number().int().min(1).max(365),
+    instruction: z.string().trim().max(255).nullish(),
+  })
+  .refine((ligne) => Boolean(ligne.medicamentId) !== Boolean(ligne.libelle), {
+    message: "Choisissez un médicament du stock ou saisissez son nom",
+    path: ["libelle"],
+  });
 
 const schemaOrdonnance = z.object({
   // Liste vide : supprime l'ordonnance (le praticien a retiré tous les médicaments).

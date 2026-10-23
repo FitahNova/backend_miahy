@@ -182,7 +182,7 @@ export async function prendrePassageEnCharge(passageId: number, praticienId: num
 }
 
 // Fin de consultation : crée la facture (prix copiés) puis oriente le passage.
-// Avec ordonnance → pharmacie ; sans ordonnance → caisse.
+// Avec des médicaments du stock → pharmacie ; sinon (aucune ordonnance, ou hors stock seulement) → caisse.
 // Appelée uniquement par la signature de la consultation, dans sa transaction.
 export async function terminerPassageDansTransaction(
   transaction: Prisma.TransactionClient,
@@ -192,13 +192,17 @@ export async function terminerPassageDansTransaction(
 ) {
   const passage = await transaction.passage.findUnique({
     where: { id: passageId },
-    select: { patientId: true, ordonnance: { select: { id: true } } },
+    // Seuls les médicaments du stock passent à la pharmacie ; une ordonnance hors stock seulement va en caisse.
+    select: {
+      patientId: true,
+      ordonnance: { select: { lignes: { where: { medicamentId: { not: null } }, select: { id: true }, take: 1 } } },
+    },
   });
   if (!passage) {
     throw new ErreurHttp(404, "PASSAGE_INTROUVABLE");
   }
 
-  const avecOrdonnance = passage.ordonnance !== null;
+  const avecOrdonnance = (passage.ordonnance?.lignes.length ?? 0) > 0;
 
   const resultat = await transaction.passage.updateMany({
     where: { id: passageId, statut: StatutPassage.EN_CONSULTATION },
