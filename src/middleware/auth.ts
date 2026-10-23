@@ -1,8 +1,9 @@
 import type { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import type { Role } from "../generated/prisma/client.js";
+import { prisma } from "../config/prisma.js";
+import { DUREE_JETON_ACCES_MINUTES } from "../config/constants.js";
 import { lireCookie, NOM_COOKIE_SESSION } from "../utils/cookies.js";
-import { controlerSession, cloturerSiInactive } from "../services/inactivite.service.js";
 
 export interface UtilisateurConnecte {
   id: number;
@@ -13,14 +14,12 @@ interface DonneesJeton {
   id: number;
   role: Role;
   versionSession: number;
-  sessionId: number;
 }
 
 declare global {
   namespace Express {
     interface Request {
       utilisateur?: UtilisateurConnecte;
-      sessionId?: number;
     }
   }
 }
@@ -35,11 +34,11 @@ function lireSecretJwt(): string {
 
 // Utilisé par la connexion pour créer le jeton du cookie.
 // La version de session est incluse : si elle change en base, le jeton n'est plus valable.
-export function signerJeton(donnees: DonneesJeton, dureeMinutes: number): string {
+export function signerJeton(donnees: DonneesJeton): string {
   return jwt.sign(
-    { id: donnees.id, role: donnees.role, version: donnees.versionSession, session: donnees.sessionId },
+    { id: donnees.id, role: donnees.role, version: donnees.versionSession },
     lireSecretJwt(),
-    { expiresIn: `${dureeMinutes}m` },
+    { expiresIn: `${DUREE_JETON_ACCES_MINUTES}m` },
   );
 }
 
@@ -54,47 +53,29 @@ export async function exigerConnexion(requete: Request, reponse: Response, suiva
   let contenu: jwt.JwtPayload;
   try {
     contenu = jwt.verify(jeton, lireSecretJwt()) as jwt.JwtPayload;
-  } catch (erreur) {
-    if (erreur instanceof jwt.TokenExpiredError) {
-      await noterExpiration(jeton);
-    }
+  } catch {
     reponse.status(401).json({ code: "SESSION_EXPIREE" });
     return;
   }
 
   const id = Number(contenu.id);
-  const sessionId = Number(contenu.session);
-  if (!Number.isInteger(sessionId) || sessionId <= 0) {
-    reponse.status(401).json({ code: "SESSION_EXPIREE" });
-    return;
-  }
 
   try {
-    // Relecture en base : désactivation, révocation et inactivité prennent effet immédiatement.
-    // L'échéance n'est pas repoussée ici.
-    const utilisateur = await controlerSession(sessionId, id, Number(contenu.version));
-    if (!utilisateur) {
+    // Relecture en base à chaque requête : désactivation, changement de rôle et révocation prennent effet immédiatement.
+    const utilisateur = await prisma.utilisateur.findUnique({
+      where: { id },
+      select: { actif: true, role: true, versionSession: true },
+    });
+
+    if (!utilisateur || !utilisateur.actif || contenu.version !== utilisateur.versionSession) {
       reponse.status(401).json({ code: "SESSION_EXPIREE" });
       return;
     }
 
-    requete.utilisateur = utilisateur;
-    requete.sessionId = sessionId;
+    requete.utilisateur = { id, role: utilisateur.role };
     suivant();
   } catch (erreur) {
     suivant(erreur);
-  }
-}
-
-async function noterExpiration(jeton: string): Promise<void> {
-  try {
-    const perime = jwt.verify(jeton, lireSecretJwt(), { ignoreExpiration: true }) as jwt.JwtPayload;
-    const sessionId = Number(perime.session);
-    const utilisateurId = Number(perime.id);
-    if (!Number.isInteger(sessionId) || sessionId <= 0 || !Number.isInteger(utilisateurId) || utilisateurId <= 0) return;
-    await cloturerSiInactive(sessionId, utilisateurId);
-  } catch {
-    // Signature invalide : rien à noter.
   }
 }
 

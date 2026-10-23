@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { gererAsync } from "../utils/asyncHandler.js";
-import { recevoirActivite } from "../controllers/inactivite.controller.js";
 import { deconnecter, rafraichir } from "../controllers/session.controller.js";
 
 // Montées sur /api/auth. Pas de exigerConnexion : ces routes reçoivent un jeton expiré,
@@ -8,7 +7,6 @@ import { deconnecter, rafraichir } from "../controllers/session.controller.js";
 const routeur = Router();
 
 routeur.post("/rafraichir", gererAsync(rafraichir));
-routeur.post("/activite", gererAsync(recevoirActivite));
 routeur.post("/deconnexion", gererAsync(deconnecter));
 
 export default routeur;

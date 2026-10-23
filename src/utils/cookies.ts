@@ -20,22 +20,12 @@ export function lireCookie(requete: Request, nom: string): string | null {
   return typeof valeur === "string" && valeur !== "" ? valeur : null;
 }
 
-export function poserCookieAcces(reponse: Response, jeton: string, dureeMinutes: number) {
+export function poserCookiesSession(reponse: Response, jeton: string, refreshToken: string, expireLe: Date) {
   reponse.cookie(NOM_COOKIE_SESSION, jeton, {
     ...OPTIONS_COMMUNES,
     path: "/",
-    maxAge: dureeMinutes * 60 * 1000,
+    maxAge: DUREE_JETON_ACCES_MINUTES * 60 * 1000,
   });
-}
-
-export function poserCookiesSession(
-  reponse: Response,
-  jeton: string,
-  refreshToken: string,
-  expireLe: Date,
-  dureeAccesMinutes: number = DUREE_JETON_ACCES_MINUTES,
-) {
-  poserCookieAcces(reponse, jeton, dureeAccesMinutes);
   reponse.cookie(NOM_COOKIE_REFRESH, refreshToken, { ...OPTIONS_COMMUNES, path: CHEMIN_REFRESH, expires: expireLe });
 }
 

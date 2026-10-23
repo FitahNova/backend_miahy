@@ -1,11 +1,9 @@
 import { Router } from "express";
-import { Role } from "../generated/prisma/client.js";
 import { limiteConnexion } from "../middleware/limitation.js";
-import { exigerConnexion, exigerRole } from "../middleware/auth.js";
+import { exigerConnexion } from "../middleware/auth.js";
 import { gererAsync } from "../utils/asyncHandler.js";
 import { connexion, enregistrerMotDePasse, lireLien, motDePasseOublie } from "../controllers/auth.controller.js";
 import { moi } from "../controllers/authentification.controller.js";
-import { lireInactivite, modifierInactivite } from "../controllers/inactivite.controller.js";
 
 const routeur = Router();
 
@@ -19,7 +17,5 @@ routeur.post("/mot-de-passe-oublie", limiteConnexion, gererAsync(motDePasseOubli
 
 // Route protégée. Rafraîchissement et déconnexion : voir session.routes.ts.
 routeur.get("/moi", exigerConnexion, gererAsync(moi));
-routeur.get("/inactivite", exigerConnexion, gererAsync(lireInactivite));
-routeur.patch("/inactivite", exigerConnexion, exigerRole(Role.DIRECTION), gererAsync(modifierInactivite));
 
 export default routeur;
