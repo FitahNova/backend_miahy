@@ -2,6 +2,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../config/prisma.js";
 import { StatutFacture, StatutPassage, TypeLigneFacture, TypeMouvement } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
+import { estPerime } from "../utils/peremption.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 import {
@@ -26,6 +27,17 @@ export type AjoutHorsOrdonnance = {
   medicamentId: number;
   quantite: number;
 };
+
+// Lignes d'ordonnance du stock du centre : un médicament hors stock (prescription seule) ne passe pas au comptoir.
+const LIGNES_DU_STOCK = { medicamentId: { not: null } } as const;
+type LigneDuStock<T> = T & { medicament: NonNullable<T extends { medicament: infer M } ? M : never> } & (T extends {
+  medicamentId: unknown;
+}
+  ? { medicamentId: number }
+  : unknown);
+function duStock<T extends { medicament: unknown }>(ligne: T): ligne is LigneDuStock<T> {
+  return ligne.medicament !== null;
+}
 
 /** Une ligne de facture est retirable si elle est hors ordonnance et que sa facture n'a reçu aucun paiement. */
 function estRetirable(
@@ -58,12 +70,13 @@ export async function listerPassagesAuComptoir() {
       ordonnance: {
         select: {
           lignes: {
+            where: LIGNES_DU_STOCK,
             orderBy: { id: "asc" },
             select: {
               id: true,
               quantitePrescrite: true,
               quantiteDelivree: true,
-              medicament: { select: { id: true, nom: true, forme: true, prixVente: true } },
+              medicament: { select: { id: true, nom: true, forme: true, prixVente: true, datePeremption: true } },
             },
           },
         },
@@ -89,7 +102,7 @@ export async function listerPassagesAuComptoir() {
   });
 
   const medicamentIds = [
-    ...new Set(passages.flatMap((passage) => passage.ordonnance?.lignes.map((ligne) => ligne.medicament.id) ?? [])),
+    ...new Set(passages.flatMap((passage) => passage.ordonnance?.lignes.filter(duStock).map((ligne) => ligne.medicament.id) ?? [])),
   ];
   const stocks = await calculerStocks(prisma, medicamentIds);
 
@@ -97,13 +110,16 @@ export async function listerPassagesAuComptoir() {
     ...passage,
     // Seulement ce qui reste à délivrer : la secrétaire ne lit pas l'ordonnance complète.
     aDelivrer: (ordonnance?.lignes ?? [])
+      .filter(duStock)
       .filter((ligne) => ligne.quantitePrescrite > ligne.quantiteDelivree)
-      .map((ligne) => ({
+      .map(({ medicament: { datePeremption, ...medicament }, ...ligne }) => ({
         ligneOrdonnanceId: ligne.id,
-        medicament: ligne.medicament,
+        medicament,
+        // Périmé : la secrétaire le voit grisé et ne peut pas le délivrer.
+        perime: estPerime(datePeremption),
         resteADelivrer: ligne.quantitePrescrite - ligne.quantiteDelivree,
         dejaDelivre: ligne.quantiteDelivree,
-        stockDisponible: stocks.get(ligne.medicament.id) ?? 0,
+        stockDisponible: stocks.get(medicament.id) ?? 0,
       })),
     factures: factures.map((facture) => ({
       ...facture,
@@ -150,7 +166,7 @@ async function choisirFactureCible(tx: Prisma.TransactionClient, passage: { id: 
  * chaque sortie de stock est reliée à sa ligne de facture (écriture inverse exacte en cas de retrait).
  * Une délivrance « vide » est permise : le patient refuse les médicaments, la facture passe à payer.
  * @throws 404 PASSAGE_INTROUVABLE, 409 PASSAGE_NON_SERVI, 400 LIGNE_ORDONNANCE_INVALIDE,
- *         400 QUANTITE_SUPERIEURE_AU_RESTE, 404 MEDICAMENT_INTROUVABLE, 409 STOCK_INSUFFISANT
+ *         400 QUANTITE_SUPERIEURE_AU_RESTE, 404 MEDICAMENT_INTROUVABLE, 409 STOCK_INSUFFISANT, 409 MEDICAMENT_PERIME
  */
 export async function delivrerAuComptoir(
   passageId: number,
@@ -160,8 +176,8 @@ export async function delivrerAuComptoir(
   return prisma.$transaction(async (tx) => {
     const passage = await verrouillerPassageAuComptoir(tx, passageId);
 
-    const lignesOrdonnance = await tx.ligneOrdonnance.findMany({
-      where: { ordonnance: { passageId } },
+    const lignesOrdonnance = (await tx.ligneOrdonnance.findMany({
+      where: { ordonnance: { passageId }, ...LIGNES_DU_STOCK },
       select: {
         id: true,
         medicamentId: true,
@@ -169,7 +185,7 @@ export async function delivrerAuComptoir(
         quantiteDelivree: true,
         medicament: { select: { nom: true, prixAchat: true, prixVente: true } },
       },
-    });
+    })).filter(duStock);
     const lignesParId = new Map(lignesOrdonnance.map((ligne) => [ligne.id, ligne]));
 
     const lignesRetenues = donnees.lignes.filter((ligne) => ligne.quantite > 0);
@@ -201,6 +217,13 @@ export async function delivrerAuComptoir(
     // Un seul verrou pour tous les médicaments, toujours dans le même ordre (pas d'interblocage).
     const medicamentIds = [...besoin.keys()].sort((a, b) => a - b);
     await verrouillerMedicaments(tx, medicamentIds);
+
+    // Un médicament périmé ne se délivre ni ne se vend, prescrit ou ajouté au comptoir.
+    const perime = (
+      await tx.medicament.findMany({ where: { id: { in: medicamentIds } }, select: { nom: true, datePeremption: true } })
+    ).find((medicament) => estPerime(medicament.datePeremption));
+    if (perime) throw new ErreurHttp(409, "MEDICAMENT_PERIME", { medicament: perime.nom });
+
     const stocks = await calculerStocks(tx, medicamentIds);
     for (const [medicamentId, quantite] of besoin) {
       const disponible = stocks.get(medicamentId) ?? 0;
@@ -287,7 +310,7 @@ export async function delivrerAuComptoir(
     await recalculerStatutsDuPassage(tx, passageId);
 
     const reliquat = await tx.ligneOrdonnance.findMany({
-      where: { ordonnance: { passageId } },
+      where: { ordonnance: { passageId }, ...LIGNES_DU_STOCK },
       select: { quantitePrescrite: true, quantiteDelivree: true, medicament: { select: { nom: true } } },
     });
 
@@ -312,6 +335,7 @@ export async function delivrerAuComptoir(
       factureComplementaire: facture.complementaire,
       montantAjoute,
       reliquat: reliquat
+        .filter(duStock)
         .filter((ligne) => ligne.quantitePrescrite > ligne.quantiteDelivree)
         .map((ligne) => ({ medicament: ligne.medicament.nom, reste: ligne.quantitePrescrite - ligne.quantiteDelivree })),
     };
