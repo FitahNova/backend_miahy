@@ -61,7 +61,7 @@ secret_detection:
 
 eslint:
   stage: quality
-  image: $NODE_IMAGE
+  image: node:22-alpine
   cache:
     key:
       files: [package-lock.json]
@@ -74,11 +74,11 @@ semgrep:
   stage: quality
   image: semgrep/semgrep
   script:
-    - semgrep scan $SEMGREP_RULES --metrics=off --error .
+    - semgrep scan --config auto --metrics=off --error .
 
 dependency_scan:
   stage: dependency_scan
-  image: $NODE_IMAGE
+  image: node:22-alpine
   script:
     - npm audit --audit-level=high --omit=dev
 
