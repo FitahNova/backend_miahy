@@ -1,7 +1,7 @@
 import { prisma } from "../config/prisma.js";
 import { Role, StatutDemandeAcces, TypeDemandeAcces, type Civilite, type Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
-import { hacherMotDePasse, hacherMotDePasseInutilisable, verifierNouveauMotDePasse } from "../utils/motDePasse.js";
+import { hacherMotDePasseInutilisable } from "../utils/motDePasse.js";
 import { choisirCanal, envoyerLienMotDePasse, type CanalEnvoi } from "../utils/envoiMotDePasse.js";
 import { verifierDomaineEmail } from "../utils/domaineEmail.js";
 import { normaliserTelephone, MESSAGE_TELEPHONE } from "../utils/telephone.js";
@@ -31,9 +31,6 @@ export interface DonneesNouvelUtilisateur {
   telephone?: string | null;
   role: Role;
   canal?: CanalEnvoi | null;
-  /** Présents ensemble : la Direction choisit le mot de passe, le serveur n'en garde que l'empreinte. */
-  motDePasse?: string | null;
-  confirmation?: string | null;
 }
 
 const REGEX_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -105,30 +102,21 @@ async function envoyerNouveauLien(
 }
 
 /**
- * Création d'un compte par la Direction.
- * Avec mot de passe : l'empreinte seule est enregistrée, le compte peut se connecter tout de suite,
- * et le mot de passe en clair n'est jamais renvoyé. Sans mot de passe : compte en attente, lien 8 h.
- * Ordre : champs, domaine, doublons, règles du mot de passe, puis écriture (et envoi s'il y a un lien).
- * @throws 400 PRENOM_OBLIGATOIRE, EMAIL_INVALIDE, EMAIL_DOMAINE_INVALIDE, CONTACT_OBLIGATOIRE,
- *         MOT_DE_PASSE_NON_CONFIRME, MOT_DE_PASSE_TROP_COURT, MOT_DE_PASSE_TROP_SIMPLE ;
+ * Création d'un compte par la Direction. Le compte est « en attente » : la personne reçoit un lien (8 h,
+ * usage unique) pour choisir son mot de passe ; ce clic prouve que l'adresse existe et lui appartient.
+ * Ordre : champs, domaine de l'e-mail, doublons, puis création et envoi dans une même transaction.
+ * @throws 400 PRENOM_OBLIGATOIRE, EMAIL_INVALIDE, EMAIL_DOMAINE_INVALIDE, CONTACT_OBLIGATOIRE ;
  *         409 DOUBLON_EMAIL, DOUBLON_TELEPHONE ; 503 ENVOI_COURRIEL_IMPOSSIBLE, SMS_NON_CONFIGURE
  */
 export async function creerUtilisateur(donnees: DonneesNouvelUtilisateur, auteurId: number) {
   if (!donnees.prenom.trim()) throw new ErreurHttp(400, "PRENOM_OBLIGATOIRE");
 
   const { email, telephone } = await validerContact(donnees.email, donnees.telephone);
-  if (!email && !telephone) throw new ErreurHttp(400, "CONTACT_OBLIGATOIRE");
+  // Au moins un contact est obligatoire ; le canal par défaut est l'e-mail.
+  const canal = choisirCanal({ email, telephone }, donnees.canal ?? undefined);
   await verifierDoublonsContact(email, telephone);
 
-  const motDePasse = donnees.motDePasse?.trim() ?? "";
-  const choisiParLaDirection = motDePasse.length > 0;
-  if (choisiParLaDirection) {
-    verifierNouveauMotDePasse(motDePasse, donnees.confirmation ?? "", [email, telephone]);
-  }
-  const canal = choisiParLaDirection ? null : choisirCanal({ email, telephone }, donnees.canal ?? undefined);
-  const motDePasseHash = choisiParLaDirection
-    ? await hacherMotDePasse(motDePasse)
-    : await hacherMotDePasseInutilisable();
+  const motDePasseHash = await hacherMotDePasseInutilisable();
 
   try {
     return await prisma.$transaction(async (transaction) => {
@@ -141,68 +129,29 @@ export async function creerUtilisateur(donnees: DonneesNouvelUtilisateur, auteur
           telephone,
           role: donnees.role,
           motDePasseHash,
-          motDePasseTemporaire: !choisiParLaDirection,
+          motDePasseTemporaire: true,
           actif: true,
         },
         select: selectionUtilisateur,
       });
 
-      let envoyeA: string | undefined;
-      if (!choisiParLaDirection && canal) {
-        const destinataire = { ...utilisateur, nom: utilisateur.prenom || utilisateur.nom };
-        envoyeA = await envoyerNouveauLien(transaction, destinataire, "ACTIVATION", canal);
-      }
+      const destinataire = { ...utilisateur, nom: utilisateur.prenom || utilisateur.nom };
+      const envoyeA = await envoyerNouveauLien(transaction, destinataire, "ACTIVATION", canal);
 
       await enregistrerAudit(transaction, {
         utilisateurId: auteurId,
         action: "CREATION_UTILISATEUR",
         entite: "utilisateur",
         entiteId: utilisateur.id,
-        detail: choisiParLaDirection
-          ? { role: donnees.role, mode: "EMPREINTE" }
-          : { role: donnees.role, canal, envoyeA },
+        detail: { role: donnees.role, canal, envoyeA },
       });
 
-      return envoyeA ? { utilisateur, envoyeA } : { utilisateur };
+      return { utilisateur, envoyeA };
     }, OPTIONS_TRANSACTION);
   } catch (erreur) {
     if (estViolationUnique(erreur)) throw new ErreurHttp(409, "DOUBLON_UTILISATEUR");
     throw erreur;
   }
-}
-
-/** Nouveau rôle. Le menu du titulaire suit à sa prochaine connexion. */
-export async function changerRoleUtilisateur(cibleId: number, role: Role, auteurId: number) {
-  return prisma.$transaction(async (transaction) => {
-    const existant = await transaction.utilisateur.findUnique({
-      where: { id: cibleId },
-      select: { id: true, role: true },
-    });
-    if (!existant) throw new ErreurHttp(404, "UTILISATEUR_INTROUVABLE");
-
-    if (existant.role === role) {
-      return transaction.utilisateur.findUniqueOrThrow({
-        where: { id: cibleId },
-        select: selectionUtilisateur,
-      });
-    }
-
-    const utilisateur = await transaction.utilisateur.update({
-      where: { id: cibleId },
-      data: { role },
-      select: selectionUtilisateur,
-    });
-
-    await enregistrerAudit(transaction, {
-      utilisateurId: auteurId,
-      action: "CHANGEMENT_ROLE",
-      entite: "utilisateur",
-      entiteId: cibleId,
-      detail: { avant: existant.role, apres: role },
-    });
-
-    return utilisateur;
-  }, OPTIONS_TRANSACTION);
 }
 
 /** Format de l'e-mail, domaine qui reçoit du courrier, téléphone au format +261. */
