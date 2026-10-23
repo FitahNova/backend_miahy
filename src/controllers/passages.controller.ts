@@ -54,14 +54,8 @@ export async function listerFileAttente(requete: Request, reponse: Response) {
 
 export async function creerPassage(requete: Request, reponse: Response) {
   const donnees = schemaNouveauPassage.parse(requete.body);
-  const { passage, rendezVousHonore } = await creerNouveauPassage({
-    ...donnees,
-    auteurId: requete.utilisateur ? Number(requete.utilisateur.id) : null,
-  });
-  const evenements = rendezVousHonore
-    ? [EVENEMENTS.FILE_MODIFIEE, EVENEMENTS.RENDEZ_VOUS_MODIFIE]
-    : EVENEMENTS.FILE_MODIFIEE;
-  diffuser(evenements, { passageId: passage.id });
+  const passage = await creerNouveauPassage(donnees);
+  diffuser(EVENEMENTS.FILE_MODIFIEE, { passageId: passage.id });
   reponse.status(201).json({ passage });
 }
 
