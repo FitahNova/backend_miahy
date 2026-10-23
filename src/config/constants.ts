@@ -19,6 +19,9 @@ export const SEUIL_ATTENTE_LONGUE_MINUTES = 30;     // alerte orange [À valider
 export const JOURS_AVANT_A_CONTACTER = 3;           // « À contacter » : échéance dans les 3 prochains jours
 export const JOURS_RETARD_PERDU_DE_VUE = 30;        // « Perdus de vue » : plus de 30 jours de retard
 
+// Stock
+export const JOURS_ALERTE_PEREMPTION = 90;           // « Proche de péremption » : 3 mois avant la date [à valider avec la Direction]
+
 // Numérotation
 export const PREFIXE_NUMERO_DOSSIER = "MIA-";       // MIA-0001
 export const PREFIXE_NUMERO_FACTURE = "R-";         // R-0101

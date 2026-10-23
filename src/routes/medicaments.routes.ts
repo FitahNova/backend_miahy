@@ -7,11 +7,15 @@ import {
   ajouterCategorie,
   ajouterFournisseur,
   ajouterMedicament,
+  ajouterEnStock,
+  ajouterMedicamentRapide,
+  ajouterMedicamentsEnLot,
   ajusterStockMedicament,
   changerActif,
   mettreAJourMedicament,
   modifierActifFournisseur,
   modifierCategorie,
+  obtenirApprovisionnement,
   obtenirApprovisionnements,
   obtenirCategories,
   obtenirFournisseurs,
@@ -41,10 +45,14 @@ routeur.get("/", exigerRole(...DIRECTION_SEULE), gererAsync(obtenirMedicaments))
 routeur.get("/categories", exigerRole(...DIRECTION_SEULE), gererAsync(obtenirCategories));
 routeur.get("/fournisseurs", exigerRole(...DIRECTION_SEULE), gererAsync(obtenirFournisseurs));
 routeur.get("/approvisionnements", exigerRole(...DIRECTION_SEULE), gererAsync(obtenirApprovisionnements));
+routeur.get("/approvisionnements/:id", exigerRole(...DIRECTION_SEULE), gererAsync(obtenirApprovisionnement));
 routeur.get("/a-commander", exigerRole(...DIRECTION_SEULE), gererAsync(obtenirProduitsACommander));
 routeur.get("/inventaire", exigerRole(...DIRECTION_SEULE), gererAsync(obtenirInventaire));
 
 routeur.post("/", exigerRole(...DIRECTION_SEULE), gererAsync(ajouterMedicament));
+routeur.post("/lot", exigerRole(...DIRECTION_SEULE), gererAsync(ajouterMedicamentsEnLot));
+routeur.post("/rapide", exigerRole(...DIRECTION_SEULE), gererAsync(ajouterMedicamentRapide));
+routeur.post("/ajout-stock", exigerRole(...DIRECTION_SEULE), gererAsync(ajouterEnStock));
 routeur.post("/categories", exigerRole(...DIRECTION_SEULE), gererAsync(ajouterCategorie));
 routeur.patch("/categories/:id", exigerRole(...DIRECTION_SEULE), gererAsync(modifierCategorie));
 routeur.delete("/categories/:id", exigerRole(...DIRECTION_SEULE), gererAsync(retirerCategorie));

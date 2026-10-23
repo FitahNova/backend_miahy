@@ -1,6 +1,7 @@
 import { prisma } from "../config/prisma.js";
 import { Prisma, TypeMouvement } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
+import { estPerime, observationInventaire } from "../utils/peremption.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 
@@ -137,11 +138,15 @@ export async function listerMedicaments() {
   const medicaments = await lireMedicamentsAvecStock();
   const actifs = medicaments.filter((medicament) => medicament.actif);
 
+  // Un stock périmé ne se vend plus : il est retiré de la valeur de vente.
+  const vendables = actifs.filter((medicament) => !estPerime(medicament.datePeremption));
+  const valeurDeVente = (liste: typeof actifs) =>
+    liste.reduce((somme, medicament) => somme + medicament.stock * medicament.prixVente, 0);
   const indicateurs = {
     produits: actifs.length,
-    enRupture: actifs.filter((medicament) => medicament.etat === "RUPTURE").length,
+    enRupture: vendables.filter((medicament) => medicament.etat === "RUPTURE").length,
     valeurAchat: actifs.reduce((somme, medicament) => somme + medicament.stock * medicament.prixAchat, 0),
-    valeurVente: actifs.reduce((somme, medicament) => somme + medicament.stock * medicament.prixVente, 0),
+    valeurVente: valeurDeVente(vendables),
   };
 
   return { medicaments, indicateurs };
@@ -181,6 +186,137 @@ export async function creerMedicament(donnees: DonneesMedicament, auteurId: numb
     });
 
     return medicament;
+  }, OPTIONS_TRANSACTION);
+}
+
+/**
+ * Ajout en stock depuis la ligne du tableau.
+ * Même nom, forme, catégorie, prix d'achat, prix de vente et date de péremption qu'un médicament actif :
+ * la quantité s'ajoute à son stock. Sinon, une nouvelle ligne (nouveau médicament) est créée avec ce stock.
+ */
+export async function ajouterAuStock(donnees: DonneesMedicament & { quantite: number }, auteurId: number) {
+  await verifierCategorie(donnees.categorieId);
+  const datePeremption = donnees.datePeremption ? new Date(donnees.datePeremption) : null;
+
+  return prisma.$transaction(async (transaction) => {
+    const identique = await transaction.medicament.findFirst({
+      where: {
+        actif: true,
+        nom: { equals: donnees.nom, mode: "insensitive" },
+        forme: donnees.forme,
+        categorieId: donnees.categorieId,
+        prixAchat: donnees.prixAchat,
+        prixVente: donnees.prixVente,
+        datePeremption,
+      },
+      select: { id: true },
+    });
+
+    const medicament = identique
+      ? await transaction.medicament.findUniqueOrThrow({ where: { id: identique.id }, select: selectionMedicament })
+      : await transaction.medicament.create({
+          data: {
+            nom: donnees.nom,
+            forme: donnees.forme,
+            categorieId: donnees.categorieId,
+            prixAchat: donnees.prixAchat,
+            prixVente: donnees.prixVente,
+            seuilAlerte: donnees.seuilAlerte,
+            datePeremption,
+            actif: true,
+          },
+          select: selectionMedicament,
+        });
+
+    if (identique) await verrouillerMedicaments(transaction, [medicament.id]);
+    await transaction.mouvementStock.create({
+      data: {
+        medicamentId: medicament.id,
+        type: TypeMouvement.ENTREE,
+        quantite: donnees.quantite,
+        prixAchatUnitaire: donnees.prixAchat,
+        motif: "Ajout en stock",
+        utilisateurId: auteurId,
+      },
+    });
+
+    await enregistrerAudit(transaction, {
+      utilisateurId: auteurId,
+      action: identique ? "AJOUT_STOCK" : "CREATION_MEDICAMENT",
+      entite: "medicament",
+      entiteId: medicament.id,
+      detail: { nom: medicament.nom, quantite: donnees.quantite, fusionne: Boolean(identique) },
+    });
+
+    return { medicament, fusionne: Boolean(identique) };
+  }, OPTIONS_TRANSACTION);
+}
+
+// Catégorie des produits créés depuis un approvisionnement, à reclasser ensuite par la Direction.
+const CATEGORIE_A_CLASSER = "À classer";
+
+/**
+ * Création rapide depuis l'approvisionnement : nom et forme seulement.
+ * Catégorie « À classer » (créée au besoin), prix et seuil à 0, à compléter ensuite dans la fiche.
+ */
+export async function creerMedicamentRapide(nom: string, forme: string, auteurId: number) {
+  return prisma.$transaction(async (transaction) => {
+    const categorie = await transaction.categorieMedicament.upsert({
+      where: { nom: CATEGORIE_A_CLASSER },
+      update: {},
+      create: { nom: CATEGORIE_A_CLASSER },
+      select: { id: true },
+    });
+    const medicament = await transaction.medicament.create({
+      data: { nom, forme, categorieId: categorie.id, prixAchat: 0, prixVente: 0, seuilAlerte: 0, actif: true },
+      select: selectionMedicament,
+    });
+    await enregistrerAudit(transaction, {
+      utilisateurId: auteurId,
+      action: "CREATION_MEDICAMENT",
+      entite: "medicament",
+      entiteId: medicament.id,
+      detail: { nom: medicament.nom, rapide: true },
+    });
+    return medicament;
+  }, OPTIONS_TRANSACTION);
+}
+
+/**
+ * Création de plusieurs médicaments en une fois (saisie en tableau) : tout ou rien.
+ * @throws 400 CATEGORIE_INTROUVABLE
+ */
+export async function creerMedicamentsEnLot(liste: DonneesMedicament[], auteurId: number) {
+  for (const categorieId of new Set(liste.map((donnees) => donnees.categorieId))) {
+    await verifierCategorie(categorieId);
+  }
+
+  return prisma.$transaction(async (transaction) => {
+    const crees = [];
+    for (const donnees of liste) {
+      const medicament = await transaction.medicament.create({
+        data: {
+          nom: donnees.nom,
+          forme: donnees.forme,
+          categorieId: donnees.categorieId,
+          prixAchat: donnees.prixAchat,
+          prixVente: donnees.prixVente,
+          seuilAlerte: donnees.seuilAlerte,
+          datePeremption: donnees.datePeremption ? new Date(donnees.datePeremption) : null,
+          actif: true,
+        },
+        select: selectionMedicament,
+      });
+      await enregistrerAudit(transaction, {
+        utilisateurId: auteurId,
+        action: "CREATION_MEDICAMENT",
+        entite: "medicament",
+        entiteId: medicament.id,
+        detail: { nom: medicament.nom, enLot: true },
+      });
+      crees.push(medicament);
+    }
+    return crees;
   }, OPTIONS_TRANSACTION);
 }
 
@@ -322,22 +458,24 @@ export async function listerMouvementsDuMedicament(id: number) {
 export async function rechercherPourPrescripteur(terme: string) {
   const medicaments = await prisma.medicament.findMany({
     where: { actif: true, nom: { contains: terme.trim(), mode: "insensitive" } },
-    select: { id: true, nom: true, forme: true, categorie: { select: { nom: true } } },
+    select: { id: true, nom: true, forme: true, datePeremption: true, categorie: { select: { nom: true } } },
     orderBy: { nom: "asc" },
     take: LIMITE_RECHERCHE,
   });
+  // Un médicament périmé reste affiché (grisé) mais ne peut pas être prescrit.
   return medicaments.map((medicament) => ({
     id: medicament.id,
     nom: medicament.nom,
     forme: medicament.forme,
     categorie: medicament.categorie.nom,
+    perime: estPerime(medicament.datePeremption),
   }));
 }
 
 export async function rechercherPourComptoir(terme: string) {
   const medicaments = await prisma.medicament.findMany({
     where: { actif: true, nom: { contains: terme.trim(), mode: "insensitive" } },
-    select: { id: true, nom: true, forme: true, prixVente: true },
+    select: { id: true, nom: true, forme: true, prixVente: true, datePeremption: true },
     orderBy: { nom: "asc" },
     take: LIMITE_RECHERCHE,
   });
@@ -348,6 +486,7 @@ export async function rechercherPourComptoir(terme: string) {
     forme: medicament.forme,
     prixVente: medicament.prixVente,
     disponible: (stocks.get(medicament.id) ?? 0) > 0,
+    perime: estPerime(medicament.datePeremption),
   }));
 }
 
@@ -507,6 +646,7 @@ export async function listerApprovisionnements() {
       quantite: true,
       prixAchatUnitaire: true,
       date: true,
+      approvisionnementId: true,
       medicament: { select: { nom: true } },
       approvisionnement: { select: { dateReception: true, reference: true, fournisseur: { select: { nom: true } } } },
     },
@@ -514,6 +654,7 @@ export async function listerApprovisionnements() {
 
   return mouvements.map((mouvement) => ({
     id: mouvement.id,
+    approvisionnementId: mouvement.approvisionnementId,
     date: mouvement.approvisionnement?.dateReception ?? mouvement.date,
     reference: mouvement.approvisionnement?.reference ?? null,
     fournisseur: mouvement.approvisionnement?.fournisseur.nom ?? null,
@@ -522,6 +663,56 @@ export async function listerApprovisionnements() {
     prixAchatUnitaire: mouvement.prixAchatUnitaire,
     montant: mouvement.quantite * (mouvement.prixAchatUnitaire ?? 0),
   }));
+}
+
+/**
+ * Un approvisionnement complet, toutes ses lignes : bon de réception à revoir ou à réimprimer.
+ * @throws 404 APPROVISIONNEMENT_INTROUVABLE
+ */
+export async function lireApprovisionnement(id: number) {
+  const approvisionnement = await prisma.approvisionnement.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      dateReception: true,
+      reference: true,
+      fournisseur: { select: { nom: true, telephone: true } },
+      mouvements: {
+        where: { type: TypeMouvement.ENTREE },
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          quantite: true,
+          prixAchatUnitaire: true,
+          date: true,
+          utilisateur: { select: { nom: true } },
+          medicament: { select: { nom: true, forme: true } },
+        },
+      },
+    },
+  });
+  if (!approvisionnement) throw new ErreurHttp(404, "APPROVISIONNEMENT_INTROUVABLE");
+
+  const lignes = approvisionnement.mouvements.map((mouvement) => ({
+    id: mouvement.id,
+    medicament: mouvement.medicament.nom,
+    forme: mouvement.medicament.forme,
+    quantite: mouvement.quantite,
+    prixAchatUnitaire: mouvement.prixAchatUnitaire ?? 0,
+    montant: mouvement.quantite * (mouvement.prixAchatUnitaire ?? 0),
+  }));
+  const premier = approvisionnement.mouvements[0];
+  return {
+    id: approvisionnement.id,
+    dateReception: approvisionnement.dateReception,
+    reference: approvisionnement.reference,
+    fournisseur: approvisionnement.fournisseur.nom,
+    telephoneFournisseur: approvisionnement.fournisseur.telephone,
+    enregistreLe: premier?.date ?? null,
+    enregistrePar: premier?.utilisateur?.nom ?? null,
+    lignes,
+    total: lignes.reduce((somme, ligne) => somme + ligne.montant, 0),
+  };
 }
 
 // Un approvisionnement peut contenir plusieurs lignes. Le prix d'achat du médicament n'est pas modifié (R073 à valider).
@@ -588,10 +779,36 @@ export async function listerProduitsACommander() {
 }
 
 // R077 : fiche d'inventaire avec le stock système.
+/**
+ * Fiche d'inventaire : prix, marge, quantité commandée (entrées en stock), quantité délivrée ou vendue
+ * (sorties, moins les retours) et observation selon l'état (périmé, rupture, proche de péremption…).
+ */
 export async function listerInventaire() {
-  const medicaments = await lireMedicamentsAvecStock();
+  const medicaments = (await lireMedicamentsAvecStock()).filter((medicament) => medicament.actif);
+  const mouvements = await prisma.mouvementStock.groupBy({
+    by: ["medicamentId", "type"],
+    where: {
+      medicamentId: { in: medicaments.map((medicament) => medicament.id) },
+      type: { in: [TypeMouvement.ENTREE, TypeMouvement.SORTIE, TypeMouvement.RETOUR] },
+    },
+    _sum: { quantite: true },
+  });
+  const somme = (medicamentId: number, type: TypeMouvement) =>
+    mouvements.find((ligne) => ligne.medicamentId === medicamentId && ligne.type === type)?._sum.quantite ?? 0;
+
   return medicaments
-    .filter((medicament) => medicament.actif)
     .sort((a, b) => a.nom.localeCompare(b.nom))
-    .map((medicament) => ({ id: medicament.id, nom: medicament.nom, forme: medicament.forme, stockSysteme: medicament.stock }));
+    .map((medicament) => ({
+      id: medicament.id,
+      nom: medicament.nom,
+      forme: medicament.forme,
+      prixAchat: medicament.prixAchat,
+      prixVente: medicament.prixVente,
+      marge: medicament.marge,
+      stockSysteme: medicament.stock,
+      quantiteCommandee: somme(medicament.id, TypeMouvement.ENTREE),
+      // Les sorties sont négatives ; un retour (annulation, retrait) les compense.
+      quantiteDelivree: Math.max(0, -somme(medicament.id, TypeMouvement.SORTIE) - somme(medicament.id, TypeMouvement.RETOUR)),
+      observation: observationInventaire(medicament),
+    }));
 }

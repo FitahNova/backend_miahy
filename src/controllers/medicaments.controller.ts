@@ -2,13 +2,17 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import {
   FORMES_MEDICAMENT,
+  ajouterAuStock,
   ajusterStock,
   changerActifFournisseur,
   changerActifMedicament,
   creerCategorie,
   creerFournisseur,
   creerMedicament,
+  creerMedicamentRapide,
+  creerMedicamentsEnLot,
   enregistrerApprovisionnement,
+  lireApprovisionnement,
   listerApprovisionnements,
   listerCategories,
   listerFournisseurs,
@@ -99,6 +103,33 @@ export async function ajouterMedicament(requete: Request, reponse: Response) {
   reponse.status(201).json({ medicament });
 }
 
+const schemaAjoutStock = schemaMedicament.extend({ quantite: z.number().int().positive() });
+
+/** POST /api/medicaments/ajout-stock : s'ajoute au médicament identique, sinon crée une nouvelle ligne. */
+export async function ajouterEnStock(requete: Request, reponse: Response) {
+  const resultat = await ajouterAuStock(schemaAjoutStock.parse(requete.body), lireAuteur(requete));
+  diffuser(EVENEMENTS.STOCK_MODIFIE, { medicamentId: resultat.medicament.id });
+  reponse.status(resultat.fusionne ? 200 : 201).json(resultat);
+}
+
+const schemaMedicamentRapide = schemaMedicament.pick({ nom: true, forme: true });
+
+/** POST /api/medicaments/rapide : produit absent de la liste, créé depuis l'approvisionnement. */
+export async function ajouterMedicamentRapide(requete: Request, reponse: Response) {
+  const { nom, forme } = schemaMedicamentRapide.parse(requete.body);
+  reponse.status(201).json({ medicament: await creerMedicamentRapide(nom, forme, lireAuteur(requete)) });
+}
+
+// Saisie en tableau : 50 médicaments au plus par envoi.
+const schemaLot = z.object({ medicaments: z.array(schemaMedicament).min(1).max(50) });
+
+/** POST /api/medicaments/lot : plusieurs médicaments en une fois, tout ou rien. */
+export async function ajouterMedicamentsEnLot(requete: Request, reponse: Response) {
+  const { medicaments } = schemaLot.parse(requete.body);
+  const crees = await creerMedicamentsEnLot(medicaments, lireAuteur(requete));
+  reponse.status(201).json({ medicaments: crees });
+}
+
 export async function mettreAJourMedicament(requete: Request, reponse: Response) {
   const donnees = schemaModification.parse(requete.body);
   const resultat = await modifierMedicament(lireIdentifiant(requete.params.id), donnees, lireAuteur(requete));
@@ -164,6 +195,11 @@ export async function modifierActifFournisseur(requete: Request, reponse: Respon
 
 export async function obtenirApprovisionnements(_requete: Request, reponse: Response) {
   reponse.json({ approvisionnements: await listerApprovisionnements() });
+}
+
+/** GET /api/medicaments/approvisionnements/:id : bon de réception complet. */
+export async function obtenirApprovisionnement(requete: Request, reponse: Response) {
+  reponse.json({ approvisionnement: await lireApprovisionnement(lireIdentifiant(requete.params.id)) });
 }
 
 export async function ajouterApprovisionnement(requete: Request, reponse: Response) {
