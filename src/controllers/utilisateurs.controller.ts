@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { Civilite, Role } from "../generated/prisma/client.js";
 import {
+  changerRoleUtilisateur,
   changerStatutUtilisateur,
   corrigerContact,
   creerUtilisateur,
@@ -25,9 +26,12 @@ const schemaCreation = z.object({
   telephone: z.string().trim().max(30).nullish(),
   canal: z.enum(["EMAIL", "SMS"]).nullish(),
   role: z.enum(Role),
+  motDePasse: z.string().max(200).optional(),
+  confirmation: z.string().max(200).optional(),
 });
 
 const schemaStatut = z.object({ actif: z.boolean() });
+const schemaRole = z.object({ role: z.enum(Role) });
 
 const schemaContact = z.object({
   email: z.string().trim().max(150).nullish(),
@@ -60,10 +64,18 @@ export async function ajouterUtilisateur(requete: Request, reponse: Response) {
       telephone: donnees.telephone || null,
       canal: donnees.canal ?? null,
       role: donnees.role,
+      motDePasse: donnees.motDePasse,
+      confirmation: donnees.confirmation,
     },
     lireAuteur(requete),
   );
   reponse.status(201).json(resultat);
+}
+
+export async function modifierRoleUtilisateur(requete: Request, reponse: Response) {
+  const { role } = schemaRole.parse(requete.body);
+  const utilisateur = await changerRoleUtilisateur(lireIdentifiant(requete.params.id), role, lireAuteur(requete));
+  reponse.json({ utilisateur });
 }
 
 export async function modifierStatutUtilisateur(requete: Request, reponse: Response) {

@@ -8,6 +8,7 @@ import {
   obtenirDemandes,
   refuserDemande,
   validerDemande,
+  modifierRoleUtilisateur,
   modifierStatutUtilisateur,
   obtenirJournalConnexion,
   obtenirListeUtilisateurs,
@@ -27,6 +28,7 @@ routeur.get("/journal-connexion", exigerRole(...DIRECTION_SEULE), gererAsync(obt
 routeur.get("/demandes", exigerRole(...DIRECTION_SEULE), gererAsync(obtenirDemandes));
 routeur.post("/demandes/:id/valider", exigerRole(...DIRECTION_SEULE), gererAsync(validerDemande));
 routeur.post("/demandes/:id/refuser", exigerRole(...DIRECTION_SEULE), gererAsync(refuserDemande));
+routeur.patch("/:id/role", exigerRole(...DIRECTION_SEULE), gererAsync(modifierRoleUtilisateur));
 routeur.patch("/:id/statut", exigerRole(...DIRECTION_SEULE), gererAsync(modifierStatutUtilisateur));
 routeur.post("/:id/reinitialiser-mot-de-passe", exigerRole(...DIRECTION_SEULE), gererAsync(reinitialiserMdp));
 routeur.patch("/:id/contact", exigerRole(...DIRECTION_SEULE), gererAsync(modifierContact));
