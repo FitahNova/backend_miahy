@@ -13,7 +13,9 @@
     "migrer": "prisma migrate deploy --config prisma7.config.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "test:unit": "tsx --test \"src/**/*.test.ts\"",
-    "test:integration": "tsx --test \"src/**/*.test.ts\""
+    "test:integration": "tsx --test \"src/**/*.test.ts\"",
+    "lint": "eslint .",
+    "typecheck": "prisma generate --config prisma7.config.ts && tsc --noEmit"
   },
   "keywords": [],
   "author": "",
@@ -34,9 +36,12 @@
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^10.1.0",
     "pg": "^8.23.1",
+    "prisma": "^7.10.1",
+    "tsx": "^4.23.15",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
@@ -45,8 +50,9 @@
     "@types/node": "^26.6.3",
     "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
-    "prisma": "^7.10.0",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "typescript": "~6.0",
+    "typescript-eslint": "^8.72.0"
   }
 }

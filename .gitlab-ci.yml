@@ -1,10 +1,3 @@
-include:
-  - project: 'miahy1/ci-templates'
-    file:
-      - /code-quality.yml
-      - /security-scan.yml
-      - /container-scan.yml
-
 stages:
   - build
   - test
@@ -53,6 +46,39 @@ test_integration:
     - npm ci
     - npm run test:integration
 
+secret_detection:
+  stage: secret_detection
+  image:
+    name: zricethezav/gitleaks:latest
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - gitleaks detect --source . --redact -v
+
+eslint:
+  stage: quality
+  image: $NODE_IMAGE
+  cache:
+    key:
+      files: [package-lock.json]
+    paths: [.npm/]
+  script:
+    - npm ci
+    - npm run lint
+
+semgrep:
+  stage: quality
+  image: semgrep/semgrep
+  script:
+    - semgrep scan $SEMGREP_RULES --metrics=off --error .
+
+dependency_scan:
+  stage: dependency_scan
+  image: $NODE_IMAGE
+  script:
+    - npm audit --audit-level=high --omit=dev
+
 docker_build:
   stage: docker_build
   image: docker:27
@@ -67,6 +93,46 @@ docker_build:
   artifacts:
     reports:
       dotenv: build.env
+
+image_scan:
+  stage: image_scan
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  variables:
+    TRIVY_USERNAME: "$CI_REGISTRY_USER"
+    TRIVY_PASSWORD: "$CI_REGISTRY_PASSWORD"
+    TRIVY_CACHE_DIR: "$CI_PROJECT_DIR/.trivycache"
+    TRIVY_NO_PROGRESS: "true"
+  cache:
+    key: trivy-db
+    paths: 
+      - .trivycache/
+  script:
+    - trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_DIGEST_REF"
+
+dast:
+  stage: dast
+  image:
+    name: zaproxy/zap-stable
+    entrypoint: [""]
+  services:
+    - name: "$IMAGE_CANDIDATE"
+      alias: app
+  variables:
+    ZAP_TARGET: "http://app:3000"
+  script:
+    - mkdir -p /zap/wrk
+    - curl -fs --retry 20 --retry-connrefused --retry-delay 2 "${ZAP_TARGET}/health"
+    - zap-baseline.py -t "$ZAP_TARGET" -r zap-report.html -J zap-report.json -m 3 -I
+  after_script:
+    - cp /zap/wrk/zap-report.* "$CI_PROJECT_DIR/" || true
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths: 
+      - zap-report.html
+      - zap-report.json
 
 sign_image:
   stage: sign_image

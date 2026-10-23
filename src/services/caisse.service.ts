@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { ModePaiement, StatutFacture, StatutPassage } from "../generated/prisma/client.js";
+import { ModePaiement, StatutFacture } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
