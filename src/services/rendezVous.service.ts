@@ -1,44 +1,39 @@
 /*
- * Rendez-vous (dossier §6.7, maquette « Rendez-vous »).
- * - Statuts : PRÉVU → VENU (crée le passage dans la file d'attente) | ABSENT | ANNULÉ.
- * - Médecin et Sage-femme voient leurs rendez-vous ; Médecin chef et Secrétaire voient tout.
- * - L'arrivée (« Venu ») et l'absence sont notées par la secrétaire, comme toute arrivée à l'accueil.
- * - Une revue programmée à la signature d'une consultation crée automatiquement un rendez-vous.
+ * Rendez-vous : la Secrétaire et la Direction posent le créneau et notent le statut.
+ * Prévu → Venu (crée le passage) | Absent (prépare une relance) | Annulé (sans relance).
+ * Une revue programmée à la signature d'une consultation crée aussi un rendez-vous.
  */
 import { prisma } from "../config/prisma.js";
 import { SOIGNANTS } from "../config/constants.js";
-import { Orientation, Role, StatutDemandeAcces, StatutPassage, StatutRendezVous } from "../generated/prisma/client.js";
+import {
+  Orientation,
+  Role,
+  StatutDemandeAcces,
+  StatutPassage,
+  StatutRendezVous,
+  TypeSuivi,
+} from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
+import { bornesDuJour, jourDuCentre } from "../utils/jourCentre.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { verifierMotifGrossesse } from "../utils/motifs.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { creerPassageDansTransaction } from "./passages.service.js";
-import { coordonneesVisibles } from "./patients.service.js";
+import { coordonneesVisibles, listerPatientsParRecherche } from "./patients.service.js";
 
-const FUSEAU = "Indian/Antananarivo";
-const DECALAGE_FUSEAU = "+03:00";
 const MS_PAR_JOUR = 24 * 60 * 60 * 1000;
+const DECALAGE_FUSEAU = "+03:00";
 /** Heure proposée pour une revue programmée à la signature (le patient peut venir dans la journée). */
 const HEURE_REVUE_PAR_DEFAUT = "09:00";
+const TAILLE_MOTIF_RELANCE = 255;
 
 export interface UtilisateurConnecte {
   id: number;
   role: Role;
 }
 
-/** Les praticiens « simples » ne voient que leurs propres rendez-vous (maquette : « Mes rendez-vous »). */
-const voitSeulementLesSiens = (role: Role) => role === Role.MEDECIN || role === Role.SAGE_FEMME;
 const estClinicien = (role: Role) => (SOIGNANTS as readonly Role[]).includes(role);
-
-function jourDuCentre(date: Date): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: FUSEAU }).format(date);
-}
-
-function bornesDuJour(jour: string) {
-  const debut = new Date(`${jour}T00:00:00${DECALAGE_FUSEAU}`);
-  return { debut, fin: new Date(debut.getTime() + MS_PAR_JOUR) };
-}
 
 /** Date et heure d'une revue : aujourd'hui + délai, à l'heure par défaut, dans le fuseau du centre. */
 export function dateHeureRevue(delaiJours: number): Date {
@@ -52,76 +47,65 @@ async function verifierPraticien(client: Prisma.TransactionClient, praticienId: 
   return praticien;
 }
 
-/**
- * Rendez-vous entre deux jours inclus (AAAA-MM-JJ), triés par date.
- * Le détail suit les droits : allergies pour les cliniciens seulement, téléphone selon les règles de coordonnées.
- */
-export async function listerRendezVous(filtre: { du: string; au: string }, utilisateur: UtilisateurConnecte) {
-  const debut = bornesDuJour(filtre.du).debut;
-  const fin = bornesDuJour(filtre.au).fin;
-  const rendezVous = await prisma.rendezVous.findMany({
-    where: {
-      dateHeure: { gte: debut, lt: fin },
-      ...(voitSeulementLesSiens(utilisateur.role) ? { praticienId: utilisateur.id } : {}),
-    },
-    orderBy: { dateHeure: "asc" },
+const selectionListe = {
+  id: true,
+  dateHeure: true,
+  motif: true,
+  statut: true,
+  passageId: true,
+  praticien: { select: { id: true, civilite: true, nom: true, prenom: true, role: true } },
+  patient: {
     select: {
       id: true,
-      dateHeure: true,
-      motif: true,
-      statut: true,
-      passageId: true,
-      praticien: { select: { id: true, civilite: true, nom: true, prenom: true } },
-      patient: {
-        select: {
-          id: true,
-          numeroDossier: true,
-          nom: true,
-          prenom: true,
-          sexe: true,
-          dateNaissance: true,
-          telephone: true,
-          allergies: true,
-          programme: { select: { nom: true } },
-        },
-      },
+      numeroDossier: true,
+      nom: true,
+      prenom: true,
+      telephone: true,
+      programme: { select: { nom: true } },
     },
-  });
+  },
+} satisfies Prisma.RendezVousSelect;
 
-  // Dernière visite signée de chaque patient (maquette : « DERNIÈRE VISITE »).
-  const patientIds = [...new Set(rendezVous.map((rdv) => rdv.patient.id))];
-  const visites = await prisma.passage.findMany({
-    where: { patientId: { in: patientIds }, consultation: { signeeLe: { not: null } } },
-    orderBy: { heureArrivee: "desc" },
-    select: { patientId: true, heureArrivee: true, motif: true, praticien: { select: { nom: true } } },
+/**
+ * Rendez-vous entre deux jours inclus (AAAA-MM-JJ), triés par heure.
+ * Une seule lecture : l'écran n'a pas besoin de l'historique des visites.
+ */
+export async function listerRendezVous(filtre: { du: string; au: string }, utilisateur: UtilisateurConnecte) {
+  const rendezVous = await prisma.rendezVous.findMany({
+    where: {
+      dateHeure: { gte: bornesDuJour(filtre.du).debut, lt: bornesDuJour(filtre.au).fin },
+    },
+    orderBy: { dateHeure: "asc" },
+    select: selectionListe,
   });
-  const derniere = new Map<number, (typeof visites)[number]>();
-  for (const visite of visites) if (!derniere.has(visite.patientId)) derniere.set(visite.patientId, visite);
+  const telephoneVisible = coordonneesVisibles(utilisateur.role);
+  return rendezVous.map(({ patient, ...rdv }) => ({
+    ...rdv,
+    patient: { ...patient, telephone: telephoneVisible ? patient.telephone : null },
+  }));
+}
 
-  const clinicien = estClinicien(utilisateur.role);
-  const telephoneVisible = coordonneesVisibles(utilisateur.role) && !voitSeulementLesSiens(utilisateur.role);
-  return rendezVous.map(({ patient, ...rdv }) => {
-    const visite = derniere.get(patient.id);
-    return {
-      ...rdv,
-      patient: {
-        ...patient,
-        telephone: telephoneVisible ? patient.telephone : null,
-        allergies: clinicien ? patient.allergies : undefined,
-      },
-      derniereVisite: visite
-        ? { date: visite.heureArrivee, motif: clinicien ? visite.motif : null, praticien: visite.praticien?.nom ?? null }
-        : null,
-    };
-  });
+/** Patients proposés dans le formulaire (au moins deux caractères). */
+export async function chercherPatientsRendezVous(role: Role, recherche: string | undefined) {
+  const texte = recherche?.trim() ?? "";
+  if (texte.length < 2) return [];
+  const patients = await listerPatientsParRecherche(role, texte);
+  return patients.map((patient) => ({
+    id: patient.id,
+    nom: patient.nom,
+    prenom: patient.prenom,
+    numeroDossier: patient.numeroDossier,
+    telephone: patient.telephone,
+    programme: patient.programme?.nom ?? null,
+  }));
 }
 
 /**
- * Crée un rendez-vous. La date doit être à venir ; le praticien, s'il est choisi, doit être un soignant actif.
+ * Crée un rendez-vous. La date doit être à venir et le praticien un soignant actif.
  * @throws 400 DATE_PASSEE, PRATICIEN_INVALIDE ; 404 PATIENT_INTROUVABLE ; 422 MOTIF_GROSSESSE_INCOMPATIBLE
  */
 export async function creerRendezVous(
-  donnees: { patientId: number; praticienId?: number | null; dateHeure: Date; motif: string },
+  donnees: { patientId: number; praticienId: number; dateHeure: Date; motif: string },
   auteur: UtilisateurConnecte,
 ) {
   if (donnees.dateHeure.getTime() <= Date.now()) throw new ErreurHttp(400, "DATE_PASSEE");
@@ -132,7 +116,7 @@ export async function creerRendezVous(
     });
     if (!patient?.actif) throw new ErreurHttp(404, "PATIENT_INTROUVABLE");
     verifierMotifGrossesse(donnees.motif, patient, donnees.dateHeure);
-    if (donnees.praticienId) await verifierPraticien(tx, donnees.praticienId);
+    await verifierPraticien(tx, donnees.praticienId);
     const rdv = await tx.rendezVous.create({
       data: {
         patientId: donnees.patientId,
@@ -199,13 +183,20 @@ async function lireRendezVousPrevu(tx: Prisma.TransactionClient, id: number) {
  */
 export async function marquerVenu(id: number, auteur: UtilisateurConnecte) {
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`
+      SELECT patient.id FROM patient
+      INNER JOIN rendez_vous ON rendez_vous.patient_id = patient.id
+      WHERE rendez_vous.id = ${id}
+      FOR UPDATE OF patient`;
     const rdv = await lireRendezVousPrevu(tx, id);
     if (jourDuCentre(rdv.dateHeure) !== jourDuCentre(new Date())) throw new ErreurHttp(409, "RENDEZ_VOUS_PAS_AUJOURDHUI");
-    const passage = await creerPassageDansTransaction(tx, {
+    const { passage } = await creerPassageDansTransaction(tx, {
       patientId: rdv.patientId,
       motif: rdv.motif,
       orientation: rdv.praticien?.role === Role.SAGE_FEMME ? Orientation.SAGE_FEMME : Orientation.MEDECIN,
       praticienId: rdv.praticienId,
+      auteurId: auteur.id,
+      lierRendezVousDuJour: false,
     });
     await tx.rendezVous.update({ where: { id }, data: { statut: StatutRendezVous.VENU, passageId: passage.id } });
     await enregistrerAudit(tx, {
@@ -230,11 +221,25 @@ export async function cloreRendezVous(id: number, statut: "ABSENT" | "ANNULE", a
       throw new ErreurHttp(409, "RENDEZ_VOUS_A_VENIR");
     }
     await tx.rendezVous.update({ where: { id }, data: { statut: StatutRendezVous[statut] } });
+    if (statut === "ABSENT") {
+      const motif = `Patient absent au RDV prévu : ${rdv.motif}`.slice(0, TAILLE_MOTIF_RELANCE);
+      await tx.suivi.create({
+        data: {
+          patientId: rdv.patientId,
+          rendezVousId: id,
+          type: TypeSuivi.RENDEZ_VOUS_MANQUE,
+          echeance: new Date(`${jourDuCentre(new Date())}T00:00:00.000Z`),
+          motif,
+          creeParId: auteur.id,
+        },
+      });
+    }
     await enregistrerAudit(tx, {
       utilisateurId: auteur.id,
       action: statut === "ABSENT" ? "RENDEZ_VOUS_ABSENT" : "RENDEZ_VOUS_ANNULE",
       entite: "rendez_vous",
       entiteId: id,
+      detail: { relance: statut === "ABSENT" },
     });
   }, OPTIONS_TRANSACTION);
 }
@@ -244,7 +249,7 @@ export async function cloreRendezVous(id: number, statut: "ABSENT" | "ANNULE", a
 /**
  * Compteurs affichés entre parenthèses dans le menu, selon le rôle :
  * - File d'attente : patients en attente (orientés vers le soignant s'il s'agit d'un praticien) ;
- * - Rendez-vous : rendez-vous prévus aujourd'hui (les siens pour Médecin et Sage-femme) ;
+ * - Rendez-vous : rendez-vous prévus aujourd'hui (Secrétaire et Direction) ;
  * - Pharmacie & Caisse (Secrétaire) : patients à servir.
  * - Paramètres (Direction) : demandes d'accès en attente (mot de passe oublié).
  * Seuls les compteurs utiles au rôle sont renvoyés.
@@ -263,12 +268,10 @@ export async function lireCompteurs(utilisateur: UtilisateurConnecte) {
         ...(orientation ? { OR: [{ orientation }, ...(orientation === Orientation.MEDECIN ? [{ orientation: null }] : [])] } : {}),
       },
     });
+  }
+  if (role === Role.SECRETAIRE || role === Role.DIRECTION) {
     compteurs.rendezVous = await prisma.rendezVous.count({
-      where: {
-        statut: StatutRendezVous.PREVU,
-        dateHeure: { gte: debut, lt: fin },
-        ...(voitSeulementLesSiens(role) ? { praticienId: utilisateur.id } : {}),
-      },
+      where: { statut: StatutRendezVous.PREVU, dateHeure: { gte: debut, lt: fin } },
     });
   }
   if (role === Role.SECRETAIRE) {

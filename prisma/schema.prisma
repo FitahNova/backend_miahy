@@ -76,6 +76,7 @@ model Utilisateur {
   documentsAjoutes    DocumentPartenaire[]
   rendezVousPraticien RendezVous[] @relation("RendezVousPraticien")
   rendezVousCrees     RendezVous[] @relation("RendezVousCreateur")
+  suivisCrees         Suivi[]      @relation("SuiviCreePar")
   demandesAcces       DemandeAcces[] @relation("DemandesAcces")
   demandesTraitees    DemandeAcces[] @relation("DemandesTraitees")
 
@@ -154,6 +155,7 @@ model Patient {
   passages         Passage[]
   factures         Facture[]
   rendezVous       RendezVous[]
+  suivis           Suivi[]
 
   @@index([nom, telephone])
   @@map("patient")
@@ -574,10 +576,36 @@ model RendezVous {
   creeParId             Int              @map("cree_par_id")
   creePar               Utilisateur      @relation("RendezVousCreateur", fields: [creeParId], references: [id])
   creeLe                DateTime         @default(now()) @map("cree_le") @db.Timestamptz(6)
+  suivi                 Suivi?
 
   @@index([dateHeure])
   @@index([patientId])
   @@map("rendez_vous")
+}
+
+// Relance préparée quand un rendez-vous passe à Absent. Annulé n'en crée pas.
+enum TypeSuivi {
+  RENDEZ_VOUS_MANQUE @map("rendez_vous_manque")
+
+  @@map("type_suivi")
+}
+
+model Suivi {
+  id           Int       @id @default(autoincrement())
+  patientId    Int       @map("patient_id")
+  patient      Patient   @relation(fields: [patientId], references: [id])
+  rendezVousId Int?      @unique @map("rendez_vous_id")
+  rendezVous   RendezVous? @relation(fields: [rendezVousId], references: [id])
+  type         TypeSuivi
+  echeance     DateTime  @map("echeance") @db.Date
+  motif        String    @db.VarChar(255)
+  clotureLe    DateTime? @map("cloture_le") @db.Timestamptz(6)
+  creeParId    Int?      @map("cree_par")
+  creePar      Utilisateur? @relation("SuiviCreePar", fields: [creeParId], references: [id])
+  creeLe       DateTime  @default(now()) @map("cree_le") @db.Timestamptz(6)
+
+  @@index([patientId, clotureLe])
+  @@map("suivi")
 }
 
 // ---------- Demandes d'accès à la Direction (R013) ----------

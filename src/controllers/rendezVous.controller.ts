@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 import {
+  chercherPatientsRendezVous,
   cloreRendezVous,
   creerRendezVous,
   lireCompteurs,
@@ -21,11 +22,13 @@ const schemaPeriode = z.object({ du: z.iso.date(), au: z.iso.date() }).refine((p
 const schemaRendezVous = z
   .object({
     patientId: z.number().int().positive(),
-    praticienId: z.number().int().positive().nullish(),
+    praticienId: z.number().int().positive(),
     dateHeure: z.iso.datetime({ offset: true }),
     motif: z.string().trim().min(2).max(255),
   })
   .strict();
+
+const schemaRecherchePatient = z.object({ q: z.string().optional() });
 
 const schemaCloture = z.object({ statut: z.enum(["ABSENT", "ANNULE"]) }).strict();
 
@@ -73,4 +76,11 @@ export async function compteurs(requete: Request, reponse: Response) {
 /** GET /api/rendez-vous/praticiens */
 export async function praticiens(_requete: Request, reponse: Response) {
   reponse.json({ praticiens: await listerPraticiens() });
+}
+
+/** GET /api/rendez-vous/patients?q= — recherche pour poser un créneau. */
+export async function patients(requete: Request, reponse: Response) {
+  const { q } = schemaRecherchePatient.parse(requete.query);
+  const utilisateur = lireUtilisateur(requete);
+  reponse.json({ patients: await chercherPatientsRendezVous(utilisateur.role, q) });
 }

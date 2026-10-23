@@ -7,6 +7,7 @@ import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { verifierMotifGrossesse } from "../utils/motifs.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { creerFacturePourPassage } from "./facturation.service.js";
+import { honorerRendezVousDuJour } from "./rendezVousDuJour.js";
 import type { ActeFacture } from "./facturation.service.js";
 
 const MILLISECONDES_PAR_MINUTE = 60 * 1000;
@@ -43,6 +44,9 @@ export interface DonneesNouveauPassage {
   orientation?: Orientation | null;
   urgence?: boolean;
   praticienId?: number | null;
+  auteurId?: number | null;
+  /** Faux quand l'appelant lie lui-même un rendez-vous précis (bouton Venu). */
+  lierRendezVousDuJour?: boolean;
 }
 
 function ajouterIndicateursAttente<T extends { statut: StatutPassage; heureArrivee: Date }>(passage: T) {
@@ -113,12 +117,16 @@ export async function creerNouveauPassage(donnees: DonneesNouveauPassage) {
   if (donnees.praticienId != null) {
     await verifierPraticien(donnees.praticienId);
   }
-  return prisma.$transaction((transaction) => creerPassageDansTransaction(transaction, donnees), OPTIONS_TRANSACTION);
+  return prisma.$transaction(
+    (transaction) => creerPassageDansTransaction(transaction, donnees),
+    OPTIONS_TRANSACTION,
+  );
 }
 
 /**
  * Création d'un passage dans une transaction existante (arrivée, ou rendez-vous marqué « Venu »).
  * Verrou sur le patient : deux postes ne peuvent pas créer chacun un passage au même instant (R029).
+ * Le rendez-vous prévu du jour passe à Venu, sauf si l'appelant le lie lui-même.
  * @throws 404 PATIENT_INTROUVABLE, 409 PASSAGE_DEJA_EN_COURS, 422 MOTIF_GROSSESSE_INCOMPATIBLE
  */
 export async function creerPassageDansTransaction(transaction: Prisma.TransactionClient, donnees: DonneesNouveauPassage) {
@@ -141,7 +149,7 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
     throw new ErreurHttp(409, "PASSAGE_DEJA_EN_COURS");
   }
 
-  return transaction.passage.create({
+  const passage = await transaction.passage.create({
     data: {
       patientId: donnees.patientId,
       motif: donnees.motif,
@@ -151,6 +159,13 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
     },
     select: selectionPassage,
   });
+
+  const rendezVousHonore =
+    donnees.lierRendezVousDuJour === false
+      ? false
+      : await honorerRendezVousDuJour(transaction, donnees.patientId, passage.id, donnees.auteurId ?? null);
+
+  return { passage, rendezVousHonore };
 }
 
 export async function prendrePassageEnCharge(passageId: number, praticienId: number) {
