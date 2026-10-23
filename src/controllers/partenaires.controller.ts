@@ -95,46 +95,11 @@ export async function joindreDocument(requete: Request, reponse: Response) {
     .json({ document: await ajouterDocumentPartenaire(lireIdentifiant(requete.params.id), fichier, lireAuteur(requete)) });
 }
 
-/** Prépare le téléchargement. Le type du contenu est choisi ensuite, parmi les types acceptés. */
-function preparerTelechargement(reponse: Response, nomFichier: string): Response {
-  reponse.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(nomFichier)}`);
-  reponse.setHeader("X-Content-Type-Options", "nosniff");
-  return reponse;
-}
-
-/**
- * Envoie le fichier avec un type connu, écrit en clair.
- * Le type enregistré n'est jamais recopié dans l'en-tête : un contenu HTML ne peut pas s'afficher comme une page.
- */
-function envoyerDocument(reponse: Response, nomFichier: string, typeMime: string, contenu: Buffer): void {
-  switch (typeMime) {
-    case "application/pdf":
-      preparerTelechargement(reponse, nomFichier).type("application/pdf").send(contenu);
-      return;
-    case "image/jpeg":
-      preparerTelechargement(reponse, nomFichier).type("image/jpeg").send(contenu);
-      return;
-    case "image/png":
-      preparerTelechargement(reponse, nomFichier).type("image/png").send(contenu);
-      return;
-    case "image/webp":
-      preparerTelechargement(reponse, nomFichier).type("image/webp").send(contenu);
-      return;
-    case "application/msword":
-      preparerTelechargement(reponse, nomFichier).type("application/msword").send(contenu);
-      return;
-    case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-      preparerTelechargement(reponse, nomFichier)
-        .type("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-        .send(contenu);
-      return;
-    default:
-      throw new ErreurHttp(415, "TYPE_DOCUMENT_REFUSE");
-  }
-}
-
 /** GET /api/partenaires/documents/:documentId — téléchargement (ouverture dans le navigateur). */
 export async function telechargerDocument(requete: Request, reponse: Response) {
   const document = await lireDocumentPartenaire(lireIdentifiant(requete.params.documentId));
-  envoyerDocument(reponse, document.nomFichier, document.typeMime, document.contenu);
+  reponse.setHeader("Content-Type", document.typeMime);
+  reponse.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(document.nomFichier)}`);
+  reponse.setHeader("X-Content-Type-Options", "nosniff");
+  reponse.send(document.contenu);
 }

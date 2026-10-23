@@ -72,7 +72,7 @@ export const gestionnaireErreurs: ErrorRequestHandler = (erreur, _requete, repon
   const codePrisma = lireCodePrisma(erreur);
   const connue = codePrisma ? ERREURS_PRISMA[codePrisma] : undefined;
   if (connue) {
-    if (connue.statut >= 500) console.error("Erreur Prisma", codePrisma, erreur);
+    if (connue.statut >= 500) console.error(`Prisma ${codePrisma}`, erreur);
     if (connue.reessayer) reponse.set("Retry-After", "5");
     reponse.status(connue.statut).json({ code: connue.code });
     return;
