@@ -10,7 +10,8 @@ import { enregistrerAudit } from "./audit.service.js";
 
 const NOMBRE_CHIFFRES_NUMERO_DOSSIER = 4; // MIA-0001 : 8 caractères au total
 const NOMBRE_ESSAIS_CREATION = 3;
-const LIMITE_RESULTATS_RECHERCHE = 50;
+export const TAILLE_PAGE_PATIENTS = 25;
+export const TAILLE_PAGE_PATIENTS_MAXIMALE = 100;
 const LIMITE_LISTE_COMPLETE = 2000; // liste filtrée à imprimer
 const AGE_FIN_ENFANCE = 15;
 const AGE_SENIOR = 60;
@@ -22,6 +23,8 @@ export interface FiltresPatients {
   sexe?: "H" | "F";
   tranche?: TrancheAge;
   complet?: boolean;
+  page?: number;
+  taille?: number;
 }
 
 // Date de naissance d'une personne qui a « ans » ans aujourd'hui.
@@ -129,21 +132,33 @@ export function masquerCoordonnees<
   return { ...patient, telephone: null, adresse: null, contactConfiance: null };
 }
 
+/**
+ * Liste paginée des patients (recherche et filtres), avec le total pour « page X sur Y ».
+ * « complet » (impression de la liste filtrée) renvoie tout, sans pagination.
+ */
 export async function listerPatientsParRecherche(role: Role, recherche?: string, filtres: FiltresPatients = {}) {
-  const patients = await prisma.patient.findMany({
-    where: {
-      AND: [
-        construireFiltreRecherche(recherche),
-        filtres.programmeId ? { programmeId: filtres.programmeId } : {},
-        filtres.sexe ? { sexe: filtres.sexe } : {},
-        filtres.tranche ? filtreTranche(filtres.tranche) : {},
-      ],
-    },
-    include: { programme: { select: { id: true, nom: true } } },
-    orderBy: [{ nom: "asc" }, { prenom: "asc" }],
-    take: filtres.complet ? LIMITE_LISTE_COMPLETE : LIMITE_RESULTATS_RECHERCHE,
-  });
-  return patients.map((patient) => masquerCoordonnees(patient, role));
+  const where: Prisma.PatientWhereInput = {
+    AND: [
+      construireFiltreRecherche(recherche),
+      filtres.programmeId ? { programmeId: filtres.programmeId } : {},
+      filtres.sexe ? { sexe: filtres.sexe } : {},
+      filtres.tranche ? filtreTranche(filtres.tranche) : {},
+    ],
+  };
+  const taille = filtres.complet ? LIMITE_LISTE_COMPLETE : (filtres.taille ?? TAILLE_PAGE_PATIENTS);
+  const page = filtres.complet ? 1 : (filtres.page ?? 1);
+  const [patients, total] = await prisma.$transaction([
+    prisma.patient.findMany({
+      where,
+      include: { programme: { select: { id: true, nom: true } } },
+      // L'identifiant départage les homonymes : l'ordre reste stable d'une page à l'autre.
+      orderBy: [{ nom: "asc" }, { prenom: "asc" }, { id: "asc" }],
+      skip: (page - 1) * taille,
+      take: taille,
+    }),
+    prisma.patient.count({ where }),
+  ]);
+  return { patients: patients.map((patient) => masquerCoordonnees(patient, role)), total, page, taille };
 }
 
 async function lirePatient(identifiant: number) {

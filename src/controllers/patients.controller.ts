@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import {
   creerNouveauPatient,
+  TAILLE_PAGE_PATIENTS_MAXIMALE,
   listerPatientsParRecherche,
   modifierPatientExistant,
   obtenirPatientParIdentifiant,
@@ -45,6 +46,8 @@ const schemaRecherche = z.object({
   sexe: z.enum(["H", "F"]).optional(),
   tranche: z.enum(["enfant", "adulte", "senior"]).optional(),
   complet: z.literal("1").optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  taille: z.coerce.number().int().min(1).max(TAILLE_PAGE_PATIENTS_MAXIMALE).optional(),
 });
 
 const lireRole = (requete: Request) => lireUtilisateur(requete).role;
@@ -52,8 +55,8 @@ const lireRole = (requete: Request) => lireUtilisateur(requete).role;
 // Les coordonnées sont masquées selon le rôle (R024) : le service reçoit le rôle de l'appelant.
 export async function listerPatients(requete: Request, reponse: Response) {
   const { q, complet, ...filtres } = schemaRecherche.parse(requete.query);
-  const patients = await listerPatientsParRecherche(lireRole(requete), q, { ...filtres, complet: complet === "1" });
-  reponse.json({ patients });
+  // { patients, total, page, taille } : la liste affiche « page X sur Y ».
+  reponse.json(await listerPatientsParRecherche(lireRole(requete), q, { ...filtres, complet: complet === "1" }));
 }
 
 export async function obtenirPatient(requete: Request, reponse: Response) {
