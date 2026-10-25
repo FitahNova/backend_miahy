@@ -270,10 +270,15 @@ export async function lireCompteurs(utilisateur: UtilisateurConnecte) {
   if (role === Role.SECRETAIRE || estClinicien(role)) {
     const orientation =
       role === Role.SAGE_FEMME ? Orientation.SAGE_FEMME : estClinicien(role) ? Orientation.MEDECIN : undefined;
+    // Médecin et sage-femme : leurs patients affectés seulement (comme leur file d'attente).
     compteurs.fileAttente = await prisma.passage.count({
       where: {
         statut: StatutPassage.EN_ATTENTE,
-        ...(orientation ? { OR: [{ orientation }, ...(orientation === Orientation.MEDECIN ? [{ orientation: null }] : [])] } : {}),
+        ...(voitSeulementLesSiens(role)
+          ? { praticienId: utilisateur.id }
+          : orientation
+            ? { OR: [{ orientation }, { orientation: null }] }
+            : {}),
       },
     });
     compteurs.rendezVous = await prisma.rendezVous.count({

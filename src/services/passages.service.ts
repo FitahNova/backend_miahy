@@ -1,7 +1,7 @@
 import { prisma } from "../config/prisma.js";
 import { SEUIL_ATTENTE_LONGUE_MINUTES, SOIGNANTS } from "../config/constants.js";
-import { StatutPassage } from "../generated/prisma/client.js";
-import type { Orientation, Prisma } from "../generated/prisma/client.js";
+import { Orientation, Role, StatutPassage } from "../generated/prisma/client.js";
+import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { verifierMotifGrossesse } from "../utils/motifs.js";
@@ -24,7 +24,9 @@ const selectionPassage = {
   patient: {
     select: { id: true, numeroDossier: true, nom: true, prenom: true, sexe: true, dateNaissance: true, allergies: true },
   },
-  praticien: { select: { id: true, nom: true, role: true } },
+  praticien: { select: { id: true, civilite: true, prenom: true, nom: true, role: true } },
+  // Arrivé sur rendez-vous (« Venu ») : appelé avant les patients sans rendez-vous.
+  rendezVous: { select: { id: true, dateHeure: true } },
 } satisfies Prisma.PassageSelect;
 
 // Statuts d'où l'on peut passer à chaque cible par un changement manuel (soignants seulement).
@@ -55,6 +57,14 @@ function ajouterIndicateursAttente<T extends { statut: StatutPassage; heureArriv
   };
 }
 
+// Médecin et sage-femme ne voient et ne prennent que les patients qui leur sont affectés ;
+// le Médecin chef voit toute la file (même règle que les rendez-vous).
+export const voitSeulementSesPatients = (role: Role) => role === Role.MEDECIN || role === Role.SAGE_FEMME;
+
+// L'orientation suit le praticien affecté : sage-femme ou médecin (médecin chef compris).
+const orientationDuPraticien = (role: Role) => (role === Role.SAGE_FEMME ? Orientation.SAGE_FEMME : Orientation.MEDECIN);
+
+/** Soignant actif ; renvoie son rôle. @throws 400 PRATICIEN_INVALIDE */
 async function verifierPraticien(identifiant: number) {
   const utilisateur = await prisma.utilisateur.findUnique({
     where: { id: identifiant },
@@ -66,6 +76,7 @@ async function verifierPraticien(identifiant: number) {
   if (!estSoignantActif) {
     throw new ErreurHttp(400, "PRATICIEN_INVALIDE");
   }
+  return utilisateur.role;
 }
 
 async function obtenirPassageExistant(identifiant: number) {
@@ -83,19 +94,26 @@ function lirePassageComplet(identifiant: number) {
   return prisma.passage.findUniqueOrThrow({ where: { id: identifiant }, select: selectionPassage });
 }
 
-export async function listerPassagesDeLaFile(statuts: StatutPassage[]) {
+export async function listerPassagesDeLaFile(statuts: StatutPassage[], utilisateur: { id: number; role: Role }) {
   const passages = await prisma.passage.findMany({
-    where: { statut: { in: statuts } },
+    where: {
+      statut: { in: statuts },
+      ...(voitSeulementSesPatients(utilisateur.role) ? { praticienId: utilisateur.id } : {}),
+    },
     orderBy: { heureArrivee: "asc" },
     select: selectionPassage,
   });
 
-  // Règle unique : les urgents en attente d'abord, puis ordre d'arrivée.
-  const rangUrgence = (p: { urgence: boolean; statut: StatutPassage }) =>
-    p.urgence && p.statut === StatutPassage.EN_ATTENTE ? 0 : 1;
+  // Règle unique, en attente : urgences d'abord, puis patients venus sur rendez-vous, puis les autres ;
+  // dans chaque groupe, ordre d'arrivée.
+  const rang = (p: { urgence: boolean; statut: StatutPassage; rendezVous: { id: number } | null }) => {
+    if (p.statut !== StatutPassage.EN_ATTENTE) return 2;
+    if (p.urgence) return 0;
+    return p.rendezVous ? 1 : 2;
+  };
 
   return passages
-    .sort((a, b) => rangUrgence(a) - rangUrgence(b) || a.heureArrivee.getTime() - b.heureArrivee.getTime())
+    .sort((a, b) => rang(a) - rang(b) || a.heureArrivee.getTime() - b.heureArrivee.getTime())
     .map(ajouterIndicateursAttente);
 }
 
@@ -111,10 +129,12 @@ const STATUTS_PASSAGE_EN_COURS: StatutPassage[] = [
 
 /** Crée un passage dans la file (arrivée enregistrée par la secrétaire). */
 export async function creerNouveauPassage(donnees: DonneesNouveauPassage) {
-  if (donnees.praticienId != null) {
-    await verifierPraticien(donnees.praticienId);
-  }
-  return prisma.$transaction((transaction) => creerPassageDansTransaction(transaction, donnees), OPTIONS_TRANSACTION);
+  const orientation =
+    donnees.praticienId != null ? orientationDuPraticien(await verifierPraticien(donnees.praticienId)) : donnees.orientation;
+  return prisma.$transaction(
+    (transaction) => creerPassageDansTransaction(transaction, { ...donnees, orientation }),
+    OPTIONS_TRANSACTION,
+  );
 }
 
 /**
@@ -157,10 +177,20 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
   return passage;
 }
 
-export async function prendrePassageEnCharge(passageId: number, praticienId: number) {
+/**
+ * R043 : un médecin ou une sage-femme ne prend en charge que son patient (ou un patient non affecté) ;
+ * le Médecin chef peut prendre n'importe quel patient de la file.
+ * @throws 404 PASSAGE_INTROUVABLE, 403 PATIENT_NON_ASSIGNE, 409 PASSAGE_PLUS_EN_ATTENTE
+ */
+export async function prendrePassageEnCharge(passageId: number, utilisateur: { id: number; role: Role }) {
+  const praticienId = utilisateur.id;
+  const existant = await obtenirPassageExistant(passageId);
+  if (voitSeulementSesPatients(utilisateur.role) && existant.praticienId !== null && existant.praticienId !== praticienId) {
+    throw new ErreurHttp(403, "PATIENT_NON_ASSIGNE");
+  }
   const pris = await prisma.$transaction(async (transaction) => {
     const resultat = await transaction.passage.updateMany({
-      where: { id: passageId, statut: StatutPassage.EN_ATTENTE },
+      where: { id: passageId, statut: StatutPassage.EN_ATTENTE, praticienId: existant.praticienId },
       data: { statut: StatutPassage.EN_CONSULTATION, praticienId, heureDebut: new Date() },
     });
     if (resultat.count === 0) return false;
@@ -174,7 +204,6 @@ export async function prendrePassageEnCharge(passageId: number, praticienId: num
   }, OPTIONS_TRANSACTION);
 
   if (!pris) {
-    await obtenirPassageExistant(passageId);
     throw new ErreurHttp(409, "PASSAGE_PLUS_EN_ATTENTE");
   }
 
@@ -290,9 +319,9 @@ export async function affecterPraticienAuPassage(passageId: number, praticienId:
     throw new ErreurHttp(409, "PASSAGE_TERMINE");
   }
 
-  await verifierPraticien(praticienId);
+  const orientation = orientationDuPraticien(await verifierPraticien(praticienId));
   await prisma.$transaction(async (transaction) => {
-    await transaction.passage.update({ where: { id: passageId }, data: { praticienId } });
+    await transaction.passage.update({ where: { id: passageId }, data: { praticienId, orientation } });
     await enregistrerAudit(transaction, {
       utilisateurId: auteurId,
       action: "AFFECTATION_PRATICIEN",

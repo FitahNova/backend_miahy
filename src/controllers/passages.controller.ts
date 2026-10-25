@@ -39,7 +39,8 @@ const schemaNouveauPassage = z.object({
   motif: z.string().trim().min(1).max(255),
   orientation: z.enum(Orientation).nullish(),
   urgence: z.boolean().optional(),
-  praticienId: z.number().int().positive().nullish(),
+  // Arrivée : le patient est affecté à un praticien (médecin, médecin chef ou sage-femme).
+  praticienId: z.number().int().positive(),
 });
 
 const schemaUrgence = z.object({ urgence: z.boolean() });
@@ -48,7 +49,8 @@ const schemaStatut = z.object({ statut: z.enum(StatutPassage) });
 
 export async function listerFileAttente(requete: Request, reponse: Response) {
   const { statut } = schemaRechercheFile.parse(requete.query);
-  const passages = await listerPassagesDeLaFile(statut ? [statut] : STATUTS_FILE_PAR_DEFAUT);
+  // Médecin et sage-femme : seulement leurs patients ; secrétaire et médecin chef : toute la file.
+  const passages = await listerPassagesDeLaFile(statut ? [statut] : STATUTS_FILE_PAR_DEFAUT, lireUtilisateur(requete));
   reponse.json({ passages });
 }
 
@@ -60,7 +62,7 @@ export async function creerPassage(requete: Request, reponse: Response) {
 }
 
 export async function prendreEnCharge(requete: Request, reponse: Response) {
-  const passage = await prendrePassageEnCharge(lireIdentifiant(requete.params.id), lireUtilisateur(requete).id);
+  const passage = await prendrePassageEnCharge(lireIdentifiant(requete.params.id), lireUtilisateur(requete));
   diffuser(EVENEMENTS.FILE_MODIFIEE, { passageId: passage.id });
   reponse.json({ passage });
 }
