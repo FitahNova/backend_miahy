@@ -72,7 +72,7 @@ export async function listerRendezVous(filtre: { du: string; au: string }, utili
       motif: true,
       statut: true,
       passageId: true,
-      praticien: { select: { id: true, civilite: true, nom: true, prenom: true } },
+      praticien: { select: { id: true, civilite: true, nom: true, prenom: true, role: true } },
       patient: {
         select: {
           id: true,
@@ -118,11 +118,11 @@ export async function listerRendezVous(filtre: { du: string; au: string }, utili
 }
 
 /**
- * Crée un rendez-vous. La date doit être à venir ; le praticien, s'il est choisi, doit être un soignant actif.
+ * Crée un rendez-vous. La date doit être à venir ; le praticien (obligatoire) doit être un soignant actif.
  * @throws 400 DATE_PASSEE, PRATICIEN_INVALIDE ; 404 PATIENT_INTROUVABLE ; 422 MOTIF_GROSSESSE_INCOMPATIBLE
  */
 export async function creerRendezVous(
-  donnees: { patientId: number; praticienId?: number | null; dateHeure: Date; motif: string },
+  donnees: { patientId: number; praticienId: number; dateHeure: Date; motif: string },
   auteur: UtilisateurConnecte,
 ) {
   if (donnees.dateHeure.getTime() <= Date.now()) throw new ErreurHttp(400, "DATE_PASSEE");
@@ -133,11 +133,11 @@ export async function creerRendezVous(
     });
     if (!patient?.actif) throw new ErreurHttp(404, "PATIENT_INTROUVABLE");
     verifierMotifGrossesse(donnees.motif, patient, donnees.dateHeure);
-    if (donnees.praticienId) await verifierPraticien(tx, donnees.praticienId);
+    await verifierPraticien(tx, donnees.praticienId);
     const rdv = await tx.rendezVous.create({
       data: {
         patientId: donnees.patientId,
-        praticienId: donnees.praticienId ?? null,
+        praticienId: donnees.praticienId,
         dateHeure: donnees.dateHeure,
         motif: donnees.motif,
         creeParId: auteur.id,

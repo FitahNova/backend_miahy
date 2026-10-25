@@ -21,7 +21,8 @@ const schemaPeriode = z.object({ du: z.iso.date(), au: z.iso.date() }).refine((p
 const schemaRendezVous = z
   .object({
     patientId: z.number().int().positive(),
-    praticienId: z.number().int().positive().nullish(),
+    // Le praticien est obligatoire : au « Venu », le patient arrive directement dans sa file.
+    praticienId: z.number().int().positive(),
     dateHeure: z.iso.datetime({ offset: true }),
     motif: z.string().trim().min(2).max(255),
   })
