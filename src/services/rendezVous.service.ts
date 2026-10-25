@@ -244,7 +244,8 @@ export async function cloreRendezVous(id: number, statut: "ABSENT" | "ANNULE", a
         await creerSuiviAutomatique(tx, {
           patientId: rdv.patientId,
           motif: rdv.motif,
-          echeance: jourDuCentre(new Date()),
+          // Échéance = jour du rendez-vous manqué : le retard se compte depuis ce jour-là.
+          echeance: jourDuCentre(rdv.dateHeure),
           origine: OrigineSuivi.RENDEZ_VOUS_ABSENT,
           rendezVousId: id,
           creeParId: auteur.id,

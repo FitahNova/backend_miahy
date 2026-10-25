@@ -21,10 +21,14 @@ export function joursDeRetard(echeance: string, aujourdhui: string): number {
   return Math.max(0, Math.round(ecart));
 }
 
-/** Liste d'un suivi ouvert selon son échéance ; null s'il est encore trop loin pour être relancé. */
-export function classerSuivi(echeance: string, aujourdhui: string): ListeSuivi | null {
+/**
+ * Liste d'un suivi ouvert selon son échéance ; null s'il est encore trop loin pour être relancé.
+ * « manque » : son rendez-vous est noté Absent. L'heure est passée sans le patient : il est en retard
+ * dès le jour même, sans passer par « À contacter ».
+ */
+export function classerSuivi(echeance: string, aujourdhui: string, manque = false): ListeSuivi | null {
   if (echeance > decalerJour(aujourdhui, JOURS_AVANT_A_CONTACTER)) return null;
-  if (echeance >= aujourdhui) return "a-contacter";
+  if (echeance >= aujourdhui) return manque ? "en-retard" : "a-contacter";
   if (joursDeRetard(echeance, aujourdhui) <= JOURS_RETARD_PERDU_DE_VUE) return "en-retard";
   return "perdus-de-vue";
 }

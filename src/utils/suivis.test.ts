@@ -11,16 +11,21 @@ describe("Suivi et rappels : classement", () => {
     assert.equal(classerSuivi("2026-10-24", AUJOURDHUI), null);
   });
 
-  it("classe « en retard » de 1 à 30 jours, « perdus de vue » au-delà", () => {
+  it("classe « en retard » de 1 à 5 jours, « perdus de vue » au-delà", () => {
     assert.equal(classerSuivi("2026-10-19", AUJOURDHUI), "en-retard");
-    assert.equal(classerSuivi("2026-09-20", AUJOURDHUI), "en-retard"); // 30 jours
-    assert.equal(classerSuivi("2026-09-19", AUJOURDHUI), "perdus-de-vue"); // 31 jours
+    assert.equal(classerSuivi("2026-10-15", AUJOURDHUI), "en-retard"); // 5 jours
+    assert.equal(classerSuivi("2026-10-14", AUJOURDHUI), "perdus-de-vue"); // 6 jours
+  });
+
+  it("met un rendez-vous noté Absent « en retard » dès le jour même", () => {
+    assert.equal(classerSuivi("2026-10-20", AUJOURDHUI, true), "en-retard");
+    assert.equal(classerSuivi("2026-10-14", AUJOURDHUI, true), "perdus-de-vue");
   });
 
   it("donne des bornes de liste cohérentes avec le classement", () => {
     assert.deepEqual(bornesListe("a-contacter", AUJOURDHUI), { du: "2026-10-20", au: "2026-10-23" });
-    assert.deepEqual(bornesListe("en-retard", AUJOURDHUI), { du: "2026-09-20", au: "2026-10-19" });
-    assert.deepEqual(bornesListe("perdus-de-vue", AUJOURDHUI), { au: "2026-09-19" });
+    assert.deepEqual(bornesListe("en-retard", AUJOURDHUI), { du: "2026-10-15", au: "2026-10-19" });
+    assert.deepEqual(bornesListe("perdus-de-vue", AUJOURDHUI), { au: "2026-10-14" });
   });
 
   it("compte les jours de retard, et les changements de mois", () => {

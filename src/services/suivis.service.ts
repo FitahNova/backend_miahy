@@ -6,6 +6,7 @@ import {
   OrigineSuivi,
   ResultatContact,
   Role,
+  StatutRendezVous,
   type Prisma,
 } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
@@ -33,6 +34,7 @@ const selectionSuivi = {
   clotureLe: true,
   motifCloture: true,
   rendezVousId: true,
+  rendezVous: { select: { statut: true } },
   type: { select: { id: true, nom: true } },
   patient: {
     select: {
@@ -54,12 +56,13 @@ type SuiviLu = Prisma.SuiviGetPayload<{ select: typeof selectionSuivi }>;
 
 /** Forme envoyée au front : liste calculée, retard, nombre de contacts ; téléphone masqué selon le rôle (R130). */
 function presenter(suivi: SuiviLu, role: Role, aujourdhui: string) {
-  const { _count, contacts, patient, ...reste } = suivi;
+  const { _count, contacts, patient, rendezVous, ...reste } = suivi;
+  const manque = rendezVous?.statut === StatutRendezVous.ABSENT;
   const echeance = dateEnJour(suivi.echeance);
   return {
     ...reste,
     echeance,
-    liste: suivi.clotureLe ? ("historique" as const) : classerSuivi(echeance, aujourdhui),
+    liste: suivi.clotureLe ? ("historique" as const) : classerSuivi(echeance, aujourdhui, manque),
     joursRetard: suivi.clotureLe ? 0 : joursDeRetard(echeance, aujourdhui),
     nombreContacts: _count.contacts,
     dernierContact: contacts[0] ?? null,
@@ -67,12 +70,20 @@ function presenter(suivi: SuiviLu, role: Role, aujourdhui: string) {
   };
 }
 
+// Rendez-vous noté Absent : le suivi est en retard dès le jour même (voir classerSuivi).
+const RENDEZ_VOUS_MANQUE: Prisma.SuiviWhereInput = { rendezVous: { statut: StatutRendezVous.ABSENT } };
+
 function filtreListe(liste: ListeSuivi, aujourdhui: string): Prisma.SuiviWhereInput {
   const { du, au } = bornesListe(liste, aujourdhui);
-  return {
-    clotureLe: null,
+  const parEcheance: Prisma.SuiviWhereInput = {
     echeance: { ...(du ? { gte: jourEnDate(du) } : {}), ...(au ? { lte: jourEnDate(au) } : {}) },
   };
+  if (liste === "a-contacter") return { clotureLe: null, AND: [parEcheance, { NOT: RENDEZ_VOUS_MANQUE }] };
+  if (liste === "en-retard") {
+    const manqueAujourdhui = { echeance: { gte: jourEnDate(aujourdhui) }, ...RENDEZ_VOUS_MANQUE };
+    return { clotureLe: null, OR: [parEcheance, manqueAujourdhui] };
+  }
+  return { clotureLe: null, ...parEcheance };
 }
 
 /** Une liste : à contacter, en retard, perdus de vue (échéance la plus ancienne d'abord), ou historique. */

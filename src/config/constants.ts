@@ -17,7 +17,7 @@ export const SEUIL_ATTENTE_LONGUE_MINUTES = 30;     // alerte orange [À valider
 
 // Suivi et rappels (R122, R124) [paramétrables plus tard par la Direction, R142]
 export const JOURS_AVANT_A_CONTACTER = 3;           // « À contacter » : échéance dans les 3 prochains jours
-export const JOURS_RETARD_PERDU_DE_VUE = 30;        // « Perdus de vue » : plus de 30 jours de retard
+export const JOURS_RETARD_PERDU_DE_VUE = 5;         // « Perdus de vue » : plus de 5 jours de retard
 
 // Stock
 export const JOURS_ALERTE_PEREMPTION = 90;           // « Proche de péremption » : 3 mois avant la date [à valider avec la Direction]
