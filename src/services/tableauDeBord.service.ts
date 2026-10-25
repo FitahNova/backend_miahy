@@ -1,7 +1,6 @@
 /*
  * Tableaux de bord (dossier §6.13, maquette « Direction »).
- * - Direction : activité ET finances.
- * - Médecin chef : activité seulement (matrice de droits : « Partiel (activité) ») ; aucun montant n'est calculé.
+ * - Direction et Médecin chef : activité ET finances (même tableau de bord).
  * Définitions (dossier §6.13) :
  * - Patients vus = patients distincts ayant un passage sur la période ; Passages = nombre de passages.
  * - Chiffre d'affaires = total encaissé (paiements) ; panier moyen = CA ÷ patients ayant payé.
@@ -36,7 +35,8 @@ function ajouterJours(jour: string, nombre: number): string {
   return jourDuCentre(new Date(debutDuJour(jour).getTime() + nombre * MS_PAR_JOUR + MS_PAR_JOUR / 2));
 }
 
-const finances = (role: Role) => role === Role.DIRECTION;
+// Le Médecin chef voit le même tableau de bord que la Direction, finances comprises (décision du 25/10/2026).
+const finances = (role: Role) => role === Role.DIRECTION || role === Role.MEDECIN_CHEF;
 
 /** Passages (patient + heures) et paiements (montant + patient) entre deux instants. */
 async function lireActivite(debut: Date, fin: Date, avecFinances: boolean) {
