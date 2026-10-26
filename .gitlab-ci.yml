@@ -121,6 +121,73 @@ image_scan:
   script:
     - trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_DIGEST_REF"
 
+dast:
+  stage: dast
+  image: docker:27
+  services:
+    - name: docker:27-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+
+    # Créer un réseau Docker isolé pour ce job spécifique
+    - NETWORK_NAME="dast-net-$CI_JOB_ID"
+    - docker network create "$NETWORK_NAME"
+
+    # 1. Démarrer PostgreSQL
+    - docker run -d --name "postgres-$CI_JOB_ID" --network "$NETWORK_NAME"
+        -e POSTGRES_USER=myuser
+        -e POSTGRES_PASSWORD=mypassword
+        -e POSTGRES_DB=mydb
+        postgres:17-alpine
+
+    # 2. Démarrer le conteneur de l'application
+    - docker run -d --name "app-$CI_JOB_ID" --network "$NETWORK_NAME"
+        -e NODE_ENV="production"
+        -e DATABASE_URL="postgresql://myuser:mypassword@postgres-$CI_JOB_ID:5432/mydb"
+        -e JWT_SECRET="000000000000000000000000000000000000000000000000"
+        -e GMAIL_USER="ci@example.com"
+        -e GMAIL_APP_PASSWORD="factice"
+        -p 3000:3000
+        "$IMAGE_CANDIDATE"
+
+    # 3. Attendre que l'application réponde
+    - |
+      echo "Attente du démarrage de l'application..."
+      for i in $(seq 1 30); do
+        if docker run --rm --network "$NETWORK_NAME" curlimages/curl -fs http://app-$CI_JOB_ID:3000${DAST_HEALTH_PATH}; then
+          echo "Application prête !"
+          break
+        fi
+        sleep 2
+      done
+
+    # 4. Lancer OWASP ZAP
+    - docker run --rm --network "$NETWORK_NAME"
+        -v "$(pwd):/zap/wrk/:rw"
+        zaproxy/zap-stable
+        zap-baseline.py -t http://app-$CI_JOB_ID:3000 -r zap-report.html -J zap-report.json -m 3 -I || true
+
+  after_script:
+    # Nettoyage systématique des conteneurs et du réseau
+    - docker rm -f "app-$CI_JOB_ID" "postgres-$CI_JOB_ID" || true
+    - docker network rm "dast-net-$CI_JOB_ID" || true
+
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - zap-report.html
+      - zap-report.json
+
+
+
+
+
+
 
 sign_image:
   stage: sign_image
