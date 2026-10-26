@@ -6,12 +6,13 @@
  * - Une revue programmée à la signature d'une consultation crée automatiquement un rendez-vous.
  */
 import { prisma } from "../config/prisma.js";
-import { SOIGNANTS } from "../config/constants.js";
-import { Orientation, OrigineSuivi, Role, StatutDemandeAcces, StatutPassage, StatutRendezVous } from "../generated/prisma/client.js";
+import { DUREE_CRENEAU_RENDEZ_VOUS_MINUTES, SOIGNANTS } from "../config/constants.js";
+import { MotifClotureSuivi, Orientation, OrigineSuivi, Role, StatutDemandeAcces, StatutPassage, StatutRendezVous } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { verifierMotifGrossesse } from "../utils/motifs.js";
+import { memeCreneau, premierCreneauLibre } from "../utils/creneaux.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { creerPassageDansTransaction } from "./passages.service.js";
 import { coordonneesVisibles } from "./patients.service.js";
@@ -45,6 +46,30 @@ function bornesDuJour(jour: string) {
 export function dateHeureRevue(delaiJours: number): Date {
   const jour = jourDuCentre(new Date(Date.now() + delaiJours * MS_PAR_JOUR));
   return new Date(`${jour}T${HEURE_REVUE_PAR_DEFAUT}:00${DECALAGE_FUSEAU}`);
+}
+
+/** Heures des rendez-vous encore prévus du patient, le même jour (± 1 jour, pour le fuseau). */
+async function rendezVousPrevusDuPatient(tx: Prisma.TransactionClient, patientId: number, autour: Date) {
+  const rendezVous = await tx.rendezVous.findMany({
+    where: {
+      patientId,
+      statut: StatutRendezVous.PREVU,
+      dateHeure: { gte: new Date(autour.getTime() - MS_PAR_JOUR), lte: new Date(autour.getTime() + MS_PAR_JOUR) },
+    },
+    select: { dateHeure: true },
+  });
+  return rendezVous.map((rdv) => rdv.dateHeure);
+}
+
+/** Créneaux déjà pris par un praticien pour une journée donnée, sans exposer les données des patients. */
+export async function listerCreneauxOccupes(jour: string, praticienId: number) {
+  const { debut, fin } = bornesDuJour(jour);
+  const rendezVous = await prisma.rendezVous.findMany({
+    where: { praticienId, statut: StatutRendezVous.PREVU, dateHeure: { gte: debut, lt: fin } },
+    select: { dateHeure: true },
+    orderBy: { dateHeure: "asc" },
+  });
+  return rendezVous.map((rdv) => rdv.dateHeure);
 }
 
 async function verifierPraticien(client: Prisma.TransactionClient, praticienId: number) {
@@ -119,7 +144,8 @@ export async function listerRendezVous(filtre: { du: string; au: string }, utili
 
 /**
  * Crée un rendez-vous. La date doit être à venir ; le praticien (obligatoire) doit être un soignant actif.
- * @throws 400 DATE_PASSEE, PRATICIEN_INVALIDE ; 404 PATIENT_INTROUVABLE ; 422 MOTIF_GROSSESSE_INCOMPATIBLE
+ * @throws 400 DATE_PASSEE, PRATICIEN_INVALIDE ; 404 PATIENT_INTROUVABLE ; 409 PATIENT_DEJA_EN_RENDEZ_VOUS, PRATICIEN_DEJA_RESERVE ;
+ *         422 MOTIF_GROSSESSE_INCOMPATIBLE
  */
 export async function creerRendezVous(
   donnees: { patientId: number; praticienId: number; dateHeure: Date; motif: string },
@@ -134,6 +160,28 @@ export async function creerRendezVous(
     if (!patient?.actif) throw new ErreurHttp(404, "PATIENT_INTROUVABLE");
     verifierMotifGrossesse(donnees.motif, patient, donnees.dateHeure);
     await verifierPraticien(tx, donnees.praticienId);
+    // Verrouillage par praticien : deux créations simultanées ne peuvent pas réserver le même créneau.
+    await tx.$queryRaw`SELECT id FROM utilisateur WHERE id = ${donnees.praticienId} FOR UPDATE`;
+    const decalageCreneau = DUREE_CRENEAU_RENDEZ_VOUS_MINUTES * 60 * 1000;
+    const debutCreneau = new Date(donnees.dateHeure.getTime() - decalageCreneau);
+    const finCreneau = new Date(donnees.dateHeure.getTime() + decalageCreneau);
+    const rendezVousPraticien = await tx.rendezVous.findMany({
+      where: {
+        praticienId: donnees.praticienId,
+        statut: StatutRendezVous.PREVU,
+        dateHeure: { gt: debutCreneau, lt: finCreneau },
+      },
+      select: { dateHeure: true },
+    });
+    const conflitPraticien = rendezVousPraticien.find((rdv) => memeCreneau(rdv.dateHeure, donnees.dateHeure));
+    if (conflitPraticien) {
+      throw new ErreurHttp(409, "PRATICIEN_DEJA_RESERVE", { dateHeure: conflitPraticien.dateHeure.toISOString() });
+    }
+    // Un patient ne peut pas être attendu à la même date et à la même heure, même chez un autre praticien.
+    const occupe = (await rendezVousPrevusDuPatient(tx, donnees.patientId, donnees.dateHeure)).find((dateHeure) =>
+      memeCreneau(dateHeure, donnees.dateHeure),
+    );
+    if (occupe) throw new ErreurHttp(409, "PATIENT_DEJA_EN_RENDEZ_VOUS", { dateHeure: occupe.toISOString() });
     const rdv = await tx.rendezVous.create({
       data: {
         patientId: donnees.patientId,
@@ -151,6 +199,16 @@ export async function creerRendezVous(
       entiteId: rdv.id,
       detail: { patientId: donnees.patientId, dateHeure: donnees.dateHeure.toISOString() },
     });
+    // Chaque rendez-vous est suivi : « À contacter » 3 jours avant (rappel), clôturé au « Venu »,
+    // en retard s'il est noté Absent, perdu de vue au-delà de 5 jours.
+    await creerSuiviAutomatique(tx, {
+      patientId: donnees.patientId,
+      motif: donnees.motif,
+      echeance: jourDuCentre(donnees.dateHeure),
+      origine: OrigineSuivi.RENDEZ_VOUS,
+      rendezVousId: rdv.id,
+      creeParId: auteur.id,
+    });
     return rdv;
   }, OPTIONS_TRANSACTION);
 }
@@ -160,11 +218,14 @@ export async function creerRendezVousDeRevue(
   tx: Prisma.TransactionClient,
   donnees: { patientId: number; praticienId: number; consultationId: number; delaiJours: number; motif: string },
 ) {
+  // Revue à l'heure par défaut, décalée au premier créneau libre si le patient a déjà un rendez-vous.
+  const souhaite = dateHeureRevue(donnees.delaiJours);
+  const dateHeure = premierCreneauLibre(souhaite, await rendezVousPrevusDuPatient(tx, donnees.patientId, souhaite));
   return tx.rendezVous.create({
     data: {
       patientId: donnees.patientId,
       praticienId: donnees.praticienId,
-      dateHeure: dateHeureRevue(donnees.delaiJours),
+      dateHeure,
       motif: donnees.motif,
       consultationOrigineId: donnees.consultationId,
       creeParId: donnees.praticienId,
@@ -237,7 +298,14 @@ export async function cloreRendezVous(id: number, statut: "ABSENT" | "ANNULE", a
       entite: "rendez_vous",
       entiteId: id,
     });
-    // R116 : un patient absent est à recontacter, sauf si un suivi existe déjà pour ce rendez-vous (revue).
+    // Annulé : plus rien à relancer, son suivi est clôturé (le patient est prévenu par SMS ou WhatsApp).
+    if (statut === "ANNULE") {
+      await tx.suivi.updateMany({
+        where: { rendezVousId: id, clotureLe: null },
+        data: { clotureLe: new Date(), motifCloture: MotifClotureSuivi.RENDEZ_VOUS_ANNULE, clotureParId: auteur.id },
+      });
+    }
+    // R116 : un patient absent est à recontacter ; son suivi existe déjà, sauf pour un ancien rendez-vous.
     if (statut === "ABSENT") {
       const dejaSuivi = await tx.suivi.findUnique({ where: { rendezVousId: id }, select: { id: true } });
       if (!dejaSuivi) {

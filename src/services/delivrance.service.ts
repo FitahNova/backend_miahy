@@ -5,6 +5,7 @@ import { ErreurHttp } from "../utils/errors.js";
 import { estPerime } from "../utils/peremption.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
+import { exigerJourneeOuverte } from "./caisse.service.js";
 import {
   calculerNetAPayer,
   calculerResteDu,
@@ -174,6 +175,7 @@ export async function delivrerAuComptoir(
   utilisateurId: number,
 ) {
   return prisma.$transaction(async (tx) => {
+    await exigerJourneeOuverte(tx);
     const passage = await verrouillerPassageAuComptoir(tx, passageId);
 
     const lignesOrdonnance = (await tx.ligneOrdonnance.findMany({
@@ -351,6 +353,7 @@ export async function delivrerAuComptoir(
  */
 export async function retirerLigneHorsOrdonnance(ligneFactureId: number, utilisateurId: number) {
   return prisma.$transaction(async (tx) => {
+    await exigerJourneeOuverte(tx);
     const reperage = await tx.ligneFacture.findUnique({ where: { id: ligneFactureId }, select: { factureId: true } });
     if (!reperage) throw new ErreurHttp(404, "LIGNE_FACTURE_INTROUVABLE");
 

@@ -5,6 +5,7 @@ import {
   creerRendezVous,
   lireCompteurs,
   listerPraticiens,
+  listerCreneauxOccupes,
   listerRendezVous,
   marquerVenu,
 } from "../services/rendezVous.service.js";
@@ -17,6 +18,7 @@ const schemaPeriode = z.object({ du: z.iso.date(), au: z.iso.date() }).refine((p
   path: ["au"],
   message: "PERIODE_INVALIDE",
 });
+const schemaDisponibilites = z.object({ jour: z.iso.date(), praticienId: z.coerce.number().int().positive() });
 
 const schemaRendezVous = z
   .object({
@@ -41,11 +43,17 @@ export async function lister(requete: Request, reponse: Response) {
   reponse.json({ rendezVous: await listerRendezVous(periode, lireUtilisateur(requete)) });
 }
 
+/** GET /api/rendez-vous/disponibilites?jour=AAAA-MM-JJ&praticienId=123 */
+export async function disponibilites(requete: Request, reponse: Response) {
+  const { jour, praticienId } = schemaDisponibilites.parse(requete.query);
+  reponse.json({ creneauxOccupes: await listerCreneauxOccupes(jour, praticienId) });
+}
+
 /** POST /api/rendez-vous */
 export async function creer(requete: Request, reponse: Response) {
   const donnees = schemaRendezVous.parse(requete.body);
   const rdv = await creerRendezVous({ ...donnees, dateHeure: new Date(donnees.dateHeure) }, lireUtilisateur(requete));
-  diffuser(EVENEMENTS.RENDEZ_VOUS_MODIFIE, { rendezVousId: rdv.id });
+  diffuser([EVENEMENTS.RENDEZ_VOUS_MODIFIE, EVENEMENTS.SUIVIS_MODIFIES], { rendezVousId: rdv.id });
   reponse.status(201).json({ rendezVous: rdv });
 }
 
@@ -65,7 +73,7 @@ export async function clore(requete: Request, reponse: Response) {
   const id = lireIdentifiant(requete.params.id);
   const { statut } = schemaCloture.parse(requete.body);
   await cloreRendezVous(id, statut, lireUtilisateur(requete));
-  diffuser(statut === "ABSENT" ? [EVENEMENTS.RENDEZ_VOUS_MODIFIE, EVENEMENTS.SUIVIS_MODIFIES] : EVENEMENTS.RENDEZ_VOUS_MODIFIE, {
+  diffuser([EVENEMENTS.RENDEZ_VOUS_MODIFIE, EVENEMENTS.SUIVIS_MODIFIES], {
     rendezVousId: id,
   });
   reponse.status(204).end();

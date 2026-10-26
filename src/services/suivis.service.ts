@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { JOURS_AVANT_A_CONTACTER } from "../config/constants.js";
+import { JOURS_AVANT_A_CONTACTER, TAILLE_PAGE } from "../config/constants.js";
 import {
   CanalContact,
   MotifClotureSuivi,
@@ -20,7 +20,6 @@ export interface UtilisateurConnecte {
   role: Role;
 }
 
-const LIMITE_HISTORIQUE = 100;
 
 const jourEnDate = (jour: string) => new Date(`${jour}T00:00:00.000Z`);
 const dateEnJour = (date: Date) => date.toISOString().slice(0, 10);
@@ -34,7 +33,15 @@ const selectionSuivi = {
   clotureLe: true,
   motifCloture: true,
   rendezVousId: true,
-  rendezVous: { select: { statut: true } },
+  // Rendez-vous lié : date, motif et praticien servent au message (rappel, retard) envoyé au patient.
+  rendezVous: {
+    select: {
+      statut: true,
+      dateHeure: true,
+      motif: true,
+      praticien: { select: { civilite: true, prenom: true, nom: true, role: true } },
+    },
+  },
   type: { select: { id: true, nom: true } },
   patient: {
     select: {
@@ -48,7 +55,17 @@ const selectionSuivi = {
       programme: { select: { nom: true } },
     },
   },
-  contacts: { orderBy: { date: "desc" }, take: 1, select: { date: true, canal: true, resultat: true, note: true } },
+  contacts: {
+    orderBy: { date: "desc" },
+    select: {
+      id: true,
+      date: true,
+      canal: true,
+      resultat: true,
+      note: true,
+      auteur: { select: { prenom: true, nom: true } },
+    },
+  },
   _count: { select: { contacts: true } },
 } satisfies Prisma.SuiviSelect;
 
@@ -58,14 +75,17 @@ type SuiviLu = Prisma.SuiviGetPayload<{ select: typeof selectionSuivi }>;
 function presenter(suivi: SuiviLu, role: Role, aujourdhui: string) {
   const { _count, contacts, patient, rendezVous, ...reste } = suivi;
   const manque = rendezVous?.statut === StatutRendezVous.ABSENT;
+  const rdv = rendezVous ? { dateHeure: rendezVous.dateHeure, motif: rendezVous.motif, praticien: rendezVous.praticien } : null;
   const echeance = dateEnJour(suivi.echeance);
   return {
     ...reste,
+    rendezVous: rdv,
     echeance,
     liste: suivi.clotureLe ? ("historique" as const) : classerSuivi(echeance, aujourdhui, manque),
     joursRetard: suivi.clotureLe ? 0 : joursDeRetard(echeance, aujourdhui),
     nombreContacts: _count.contacts,
     dernierContact: contacts[0] ?? null,
+    contacts,
     patient: { ...patient, telephone: coordonneesVisibles(role) ? patient.telephone : null },
   };
 }
@@ -86,23 +106,72 @@ function filtreListe(liste: ListeSuivi, aujourdhui: string): Prisma.SuiviWhereIn
   return { clotureLe: null, ...parEcheance };
 }
 
-/** Une liste : à contacter, en retard, perdus de vue (échéance la plus ancienne d'abord), ou historique. */
-export async function listerSuivis(liste: ListeSuivi | "historique", utilisateur: UtilisateurConnecte) {
+/**
+ * Une liste, page par page (15 par page) : à contacter, en retard, perdus de vue (échéance la plus
+ * ancienne d'abord), ou historique des tentatives de contact (la plus récente d'abord).
+ */
+export async function listerSuivis(
+  liste: ListeSuivi | "historique",
+  utilisateur: UtilisateurConnecte,
+  page = 1,
+  taille = TAILLE_PAGE,
+) {
   const aujourdhui = jourDuCentre();
-  const suivis =
-    liste === "historique"
-      ? await prisma.suivi.findMany({
-          where: { clotureLe: { not: null } },
-          orderBy: { clotureLe: "desc" },
-          take: LIMITE_HISTORIQUE,
-          select: selectionSuivi,
-        })
-      : await prisma.suivi.findMany({
-          where: filtreListe(liste, aujourdhui),
-          orderBy: [{ echeance: "asc" }, { id: "asc" }],
-          select: selectionSuivi,
-        });
-  return suivis.map((suivi) => presenter(suivi, utilisateur.role, aujourdhui));
+  const historique = liste === "historique";
+  if (historique) {
+    const where: Prisma.ContactSuiviWhereInput = {};
+    const [contacts, total] = await prisma.$transaction([
+      prisma.contactSuivi.findMany({
+        where,
+        orderBy: [{ date: "desc" }, { id: "desc" }],
+        skip: (page - 1) * taille,
+        take: taille,
+        select: {
+          id: true,
+          date: true,
+          canal: true,
+          resultat: true,
+          note: true,
+          auteur: { select: { prenom: true, nom: true } },
+          suivi: { select: selectionSuivi },
+        },
+      }),
+      prisma.contactSuivi.count({ where }),
+    ]);
+    const suivis = contacts.map((contact) => {
+      const suivi = presenter(contact.suivi, utilisateur.role, aujourdhui);
+      const evenement = {
+        id: contact.id,
+        date: contact.date,
+        canal: contact.canal,
+        resultat: contact.resultat,
+        note: contact.note,
+        auteur: contact.auteur,
+      };
+      return {
+        ...suivi,
+        historiqueContactId: contact.id,
+        liste: "historique" as const,
+        nombreContacts: 1,
+        dernierContact: evenement,
+        contacts: [evenement],
+      };
+    });
+    return { suivis, total, page, taille };
+  }
+
+  const where = filtreListe(liste, aujourdhui);
+  const [suivis, total] = await prisma.$transaction([
+    prisma.suivi.findMany({
+      where,
+      orderBy: [{ echeance: "asc" }, { id: "asc" }],
+      skip: (page - 1) * taille,
+      take: taille,
+      select: selectionSuivi,
+    }),
+    prisma.suivi.count({ where }),
+  ]);
+  return { suivis: suivis.map((suivi) => presenter(suivi, utilisateur.role, aujourdhui)), total, page, taille };
 }
 
 /** Nombre de suivis par liste (onglets et compteur du menu). */
@@ -213,7 +282,14 @@ export async function noterContact(
   if (suivi.clotureLe) throw new ErreurHttp(409, "SUIVI_CLOTURE");
   return prisma.contactSuivi.create({
     data: { suiviId, canal: donnees.canal, resultat: donnees.resultat, note: donnees.note ?? null, auteurId: auteur.id },
-    select: { id: true, date: true, canal: true, resultat: true, note: true },
+    select: {
+      id: true,
+      date: true,
+      canal: true,
+      resultat: true,
+      note: true,
+      auteur: { select: { prenom: true, nom: true } },
+    },
   });
 }
 

@@ -16,9 +16,12 @@ import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
 import { EVENEMENTS } from "../realtime/events.js";
 import { diffuser } from "../realtime/sse.js";
+import { TAILLE_PAGE, TAILLE_PAGE_MAXIMALE } from "../config/constants.js";
 
 const schemaListe = z.object({
   liste: z.enum(["a-contacter", "en-retard", "perdus-de-vue", "historique"]).default("a-contacter"),
+  page: z.coerce.number().int().min(1).default(1),
+  taille: z.coerce.number().int().min(1).max(TAILLE_PAGE_MAXIMALE).default(TAILLE_PAGE),
 });
 
 const schemaSuivi = z
@@ -49,8 +52,9 @@ function lireUtilisateur(requete: Request) {
 
 /** GET /api/suivis?liste=a-contacter|en-retard|perdus-de-vue|historique */
 export async function lister(requete: Request, reponse: Response) {
-  const { liste } = schemaListe.parse(requete.query);
-  reponse.json({ suivis: await listerSuivis(liste, lireUtilisateur(requete)) });
+  const { liste, page, taille } = schemaListe.parse(requete.query);
+  // { suivis, total, page, taille } : 15 par page.
+  reponse.json(await listerSuivis(liste, lireUtilisateur(requete), page, taille));
 }
 
 /** GET /api/suivis/compteurs */

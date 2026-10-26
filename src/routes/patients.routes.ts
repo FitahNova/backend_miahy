@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { Role } from "../generated/prisma/client.js";
+import { SOIGNANTS } from "../config/constants.js";
 import { exigerConnexion, exigerRole } from "../middleware/auth.js";
 import { gererAsync } from "../utils/asyncHandler.js";
 import {
@@ -14,7 +15,7 @@ routeur.use(exigerConnexion);
 
 routeur.get("/", gererAsync(listerPatients));          // recherche : ?q=nom ou téléphone
 routeur.get("/:id", gererAsync(obtenirPatient));
-routeur.post("/", exigerRole(Role.SECRETAIRE, Role.DIRECTION), gererAsync(creerPatient));
+routeur.post("/", exigerRole(Role.SECRETAIRE, Role.DIRECTION, ...SOIGNANTS), gererAsync(creerPatient));
 // Maquette : tous les rôles modifient la fiche ; la partie clinique est filtrée dans le contrôleur.
 routeur.patch("/:id", gererAsync(modifierPatient));
 

@@ -342,11 +342,13 @@ model ClotureCaisse {
   utilisateurId Int         @map("utilisateur_id")
   utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id])
   jour          DateTime    @unique @db.Date
-  // R109 (provisoire) : total attendu = fond de caisse + paiements en espèces du jour.
+  // R109 : total attendu = fond de caisse + paiements en espèces du jour (le tiroir).
   fondDeCaisse  Int         @default(0) @map("fond_de_caisse")
   totalAttendu  Int         @map("total_attendu")
   totalCompte   Int         @map("total_compte")
   ecart         Int
+  // Nombre de billets et de pièces comptés : [{ "valeur": 10000, "quantite": 2 }, …].
+  detailComptage Json?      @map("detail_comptage")
   commentaire   String?     @db.Text
   paiements     Paiement[]
 
@@ -669,6 +671,7 @@ model TypeSuivi {
 
 enum OrigineSuivi {
   CONSULTATION       @map("consultation")
+  RENDEZ_VOUS        @map("rendez_vous") // rendez-vous pris : rappel avant la date, puis retard s'il est manqué
   RENDEZ_VOUS_ABSENT @map("rendez_vous_absent")
   MANUEL             @map("manuel")
 
@@ -676,16 +679,19 @@ enum OrigineSuivi {
 }
 
 enum MotifClotureSuivi {
-  RETOUR_PATIENT @map("retour_patient")
-  MANUELLE       @map("manuelle")
+  RETOUR_PATIENT     @map("retour_patient")
+  MANUELLE           @map("manuelle")
+  RENDEZ_VOUS_ANNULE @map("rendez_vous_annule")
 
   @@map("motif_cloture_suivi")
 }
 
 enum CanalContact {
-  APPEL @map("appel")
-  SMS   @map("sms")
-  AUTRE @map("autre")
+  APPEL    @map("appel")
+  SMS      @map("sms")
+  WHATSAPP @map("whatsapp")
+  AUTRE    @map("autre")
+  VISITE   @map("visite")
 
   @@map("canal_contact")
 }
@@ -694,6 +700,12 @@ enum ResultatContact {
   JOINT          @map("joint")
   INJOIGNABLE    @map("injoignable")
   MESSAGE_LAISSE @map("message_laisse")
+  RENDEZ_VOUS_FIXE @map("rendez_vous_fixe")
+  A_RAPPELER       @map("a_rappeler")
+  PAS_DE_REPONSE   @map("pas_de_reponse")
+  REFUS            @map("refus")
+  NUMERO_INCORRECT @map("numero_incorrect")
+  AUTRE            @map("autre")
 
   @@map("resultat_contact")
 }
