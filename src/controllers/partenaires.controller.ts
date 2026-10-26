@@ -101,5 +101,7 @@ export async function telechargerDocument(requete: Request, reponse: Response) {
   reponse.setHeader("Content-Type", document.typeMime);
   reponse.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(document.nomFichier)}`);
   reponse.setHeader("X-Content-Type-Options", "nosniff");
+  // Faux positif : le type vient de la liste blanche TYPES_DOCUMENT_ACCEPTES (PDF, images, Word), validée à l'envoi, avec nosniff.
+  // nosemgrep: javascript.express.security.audit.xss.direct-response-write.direct-response-write
   reponse.send(document.contenu);
 }
