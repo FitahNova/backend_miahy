@@ -641,7 +641,7 @@ export async function changerActifFournisseur(id: number, actif: boolean, auteur
 
 // ---------- Approvisionnements (R072) ----------
 
-/** Lignes d'approvisionnement, les plus récentes d'abord, page par page (20 par page). */
+/** Lignes d'approvisionnement, les plus récentes d'abord, page par page (15 par page). */
 export async function listerApprovisionnements(page = 1, taille = TAILLE_PAGE) {
   const where = { type: TypeMouvement.ENTREE, approvisionnementId: { not: null } };
   const [mouvements, total] = await prisma.$transaction([

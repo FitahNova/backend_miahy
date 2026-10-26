@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { PREFIXE_NUMERO_DOSSIER } from "../config/constants.js";
+import { PREFIXE_NUMERO_DOSSIER, TAILLE_PAGE } from "../config/constants.js";
 import { Role } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
@@ -10,7 +10,7 @@ import { enregistrerAudit } from "./audit.service.js";
 
 const NOMBRE_CHIFFRES_NUMERO_DOSSIER = 4; // MIA-0001 : 8 caractères au total
 const NOMBRE_ESSAIS_CREATION = 3;
-export const TAILLE_PAGE_PATIENTS = 20;
+export const TAILLE_PAGE_PATIENTS = TAILLE_PAGE;
 export const TAILLE_PAGE_PATIENTS_MAXIMALE = 100;
 const LIMITE_LISTE_COMPLETE = 2000; // liste filtrée à imprimer
 const AGE_FIN_ENFANCE = 15;

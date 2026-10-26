@@ -1,9 +1,9 @@
 import { Role } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
-import { SOIGNANTS } from "../config/constants.js";
+import { SOIGNANTS, TAILLE_PAGE } from "../config/constants.js";
 
 const DECALAGE_FUSEAU = "+03:00"; // heure de Madagascar
-export const TAILLE_PAGE_DEFAUT = 20; // même taille que toutes les listes (TAILLE_PAGE)
+export const TAILLE_PAGE_DEFAUT = TAILLE_PAGE; // même taille que toutes les listes
 export const TAILLE_PAGE_MAX = 100;
 
 // Connexion : succès, échec, déconnexion, et événements de première activation.
