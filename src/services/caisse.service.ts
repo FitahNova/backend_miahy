@@ -179,7 +179,20 @@ export async function obtenirRecuFacture(factureId: number) {
     where: { id: factureId },
     include: {
       patient: { select: { numeroDossier: true, nom: true, prenom: true } },
-      passage: { select: { heureArrivee: true } },
+      passage: {
+        select: {
+          heureArrivee: true,
+          consultation: {
+            select: {
+              rendezVousRevue: {
+                orderBy: { dateHeure: "asc" },
+                take: 1,
+                select: { dateHeure: true },
+              },
+            },
+          },
+        },
+      },
       lignes: { orderBy: { id: "asc" } },
       paiements: {
         orderBy: { date: "asc" },
@@ -196,6 +209,7 @@ export async function obtenirRecuFacture(factureId: number) {
       numero: facture.numero,
       statut: facture.statut,
       date: facture.passage.heureArrivee,
+      rendezVousRevue: facture.passage.consultation?.rendezVousRevue[0] ?? null,
       total: facture.total,
       remise: facture.remise,
       partPatient: facture.partPatient,
