@@ -55,7 +55,17 @@ const selectionSuivi = {
       programme: { select: { nom: true } },
     },
   },
-  contacts: { orderBy: { date: "desc" }, take: 1, select: { date: true, canal: true, resultat: true, note: true } },
+  contacts: {
+    orderBy: { date: "desc" },
+    select: {
+      id: true,
+      date: true,
+      canal: true,
+      resultat: true,
+      note: true,
+      auteur: { select: { prenom: true, nom: true } },
+    },
+  },
   _count: { select: { contacts: true } },
 } satisfies Prisma.SuiviSelect;
 
@@ -75,6 +85,7 @@ function presenter(suivi: SuiviLu, role: Role, aujourdhui: string) {
     joursRetard: suivi.clotureLe ? 0 : joursDeRetard(echeance, aujourdhui),
     nombreContacts: _count.contacts,
     dernierContact: contacts[0] ?? null,
+    contacts,
     patient: { ...patient, telephone: coordonneesVisibles(role) ? patient.telephone : null },
   };
 }
@@ -96,8 +107,8 @@ function filtreListe(liste: ListeSuivi, aujourdhui: string): Prisma.SuiviWhereIn
 }
 
 /**
- * Une liste, page par page (20 par page) : à contacter, en retard, perdus de vue (échéance la plus
- * ancienne d'abord), ou historique (clôture la plus récente d'abord).
+ * Une liste, page par page (15 par page) : à contacter, en retard, perdus de vue (échéance la plus
+ * ancienne d'abord), ou historique des tentatives de contact (la plus récente d'abord).
  */
 export async function listerSuivis(
   liste: ListeSuivi | "historique",
@@ -107,11 +118,53 @@ export async function listerSuivis(
 ) {
   const aujourdhui = jourDuCentre();
   const historique = liste === "historique";
-  const where = historique ? { clotureLe: { not: null } } : filtreListe(liste, aujourdhui);
+  if (historique) {
+    const where: Prisma.ContactSuiviWhereInput = {};
+    const [contacts, total] = await prisma.$transaction([
+      prisma.contactSuivi.findMany({
+        where,
+        orderBy: [{ date: "desc" }, { id: "desc" }],
+        skip: (page - 1) * taille,
+        take: taille,
+        select: {
+          id: true,
+          date: true,
+          canal: true,
+          resultat: true,
+          note: true,
+          auteur: { select: { prenom: true, nom: true } },
+          suivi: { select: selectionSuivi },
+        },
+      }),
+      prisma.contactSuivi.count({ where }),
+    ]);
+    const suivis = contacts.map((contact) => {
+      const suivi = presenter(contact.suivi, utilisateur.role, aujourdhui);
+      const evenement = {
+        id: contact.id,
+        date: contact.date,
+        canal: contact.canal,
+        resultat: contact.resultat,
+        note: contact.note,
+        auteur: contact.auteur,
+      };
+      return {
+        ...suivi,
+        historiqueContactId: contact.id,
+        liste: "historique" as const,
+        nombreContacts: 1,
+        dernierContact: evenement,
+        contacts: [evenement],
+      };
+    });
+    return { suivis, total, page, taille };
+  }
+
+  const where = filtreListe(liste, aujourdhui);
   const [suivis, total] = await prisma.$transaction([
     prisma.suivi.findMany({
       where,
-      orderBy: historique ? [{ clotureLe: "desc" }, { id: "desc" }] : [{ echeance: "asc" }, { id: "asc" }],
+      orderBy: [{ echeance: "asc" }, { id: "asc" }],
       skip: (page - 1) * taille,
       take: taille,
       select: selectionSuivi,
@@ -229,7 +282,14 @@ export async function noterContact(
   if (suivi.clotureLe) throw new ErreurHttp(409, "SUIVI_CLOTURE");
   return prisma.contactSuivi.create({
     data: { suiviId, canal: donnees.canal, resultat: donnees.resultat, note: donnees.note ?? null, auteurId: auteur.id },
-    select: { id: true, date: true, canal: true, resultat: true, note: true },
+    select: {
+      id: true,
+      date: true,
+      canal: true,
+      resultat: true,
+      note: true,
+      auteur: { select: { prenom: true, nom: true } },
+    },
   });
 }
 

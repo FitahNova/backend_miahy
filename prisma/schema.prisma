@@ -689,6 +689,7 @@ enum CanalContact {
   SMS      @map("sms")
   WHATSAPP @map("whatsapp")
   AUTRE    @map("autre")
+  VISITE   @map("visite")
 
   @@map("canal_contact")
 }
@@ -697,6 +698,12 @@ enum ResultatContact {
   JOINT          @map("joint")
   INJOIGNABLE    @map("injoignable")
   MESSAGE_LAISSE @map("message_laisse")
+  RENDEZ_VOUS_FIXE @map("rendez_vous_fixe")
+  A_RAPPELER       @map("a_rappeler")
+  PAS_DE_REPONSE   @map("pas_de_reponse")
+  REFUS            @map("refus")
+  NUMERO_INCORRECT @map("numero_incorrect")
+  AUTRE            @map("autre")
 
   @@map("resultat_contact")
 }

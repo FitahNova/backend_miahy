@@ -17,11 +17,17 @@ export interface UtilisateurConsultant {
 export const estClinique = (role: Role) => role !== Role.DIRECTION;
 export const estSoignant = (role: Role) => (SOIGNANTS as readonly Role[]).includes(role);
 
-const LIBELLES_CANAL: Record<string, string> = { APPEL: "Appel", SMS: "SMS", AUTRE: "Autre" };
+const LIBELLES_CANAL: Record<string, string> = { APPEL: "Appel", SMS: "SMS", WHATSAPP: "WhatsApp", AUTRE: "Autre", VISITE: "Visite" };
 const LIBELLES_RESULTAT: Record<string, string> = {
   JOINT: "Joint",
   INJOIGNABLE: "Injoignable",
-  MESSAGE_LAISSE: "Message laissé",
+  MESSAGE_LAISSE: "Message laiss\u00e9",
+  RENDEZ_VOUS_FIXE: "Rendez-vous fix\u00e9",
+  A_RAPPELER: "\u00c0 rappeler",
+  PAS_DE_REPONSE: "Pas de r\u00e9ponse",
+  REFUS: "Refus",
+  NUMERO_INCORRECT: "Num\u00e9ro incorrect",
+  AUTRE: "Autre",
 };
 const LIBELLES_STATUT_RDV: Record<string, string> = { PREVU: "prévu", VENU: "venu", ABSENT: "absent", ANNULE: "annulé" };
 
@@ -129,7 +135,7 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
     prisma.journalAudit.findMany({
       where: { entite: "patient", entiteId: patientId, action: "PATIENT_MODIFIE" },
       orderBy: { date: "desc" },
-      // Toutes les modifications : le dossier les affiche 20 par page.
+      // Toutes les modifications : le dossier les affiche 15 par page.
       select: { date: true, detail: true, utilisateur: { select: { nom: true } } },
     }),
   ]);
