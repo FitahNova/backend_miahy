@@ -342,11 +342,13 @@ model ClotureCaisse {
   utilisateurId Int         @map("utilisateur_id")
   utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id])
   jour          DateTime    @unique @db.Date
-  // R109 (provisoire) : total attendu = fond de caisse + paiements en espèces du jour.
+  // R109 : total attendu = fond de caisse + paiements en espèces du jour (le tiroir).
   fondDeCaisse  Int         @default(0) @map("fond_de_caisse")
   totalAttendu  Int         @map("total_attendu")
   totalCompte   Int         @map("total_compte")
   ecart         Int
+  // Nombre de billets et de pièces comptés : [{ "valeur": 10000, "quantite": 2 }, …].
+  detailComptage Json?      @map("detail_comptage")
   commentaire   String?     @db.Text
   paiements     Paiement[]
 
