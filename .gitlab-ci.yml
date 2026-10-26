@@ -30,7 +30,6 @@ variables:
   npm_config_fetch_timeout: "300000"
   npm_config_maxsockets: "3"
   IMAGE_CANDIDATE: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
-  DAST_HEALTH_PATH: "/health"
 
 .on_main: &on_main
   rules:
@@ -119,6 +118,7 @@ image_scan:
   script:
     - trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_DIGEST_REF"
 
+
 dast:
   stage: dast
   image:
@@ -142,6 +142,8 @@ dast:
         GMAIL_USER: "ci@example.com"
         GMAIL_APP_PASSWORD: "factice"
   variables:
+    DAST_PORT: "4000"
+    DAST_HEALTH_PATH: "/api/health"
     ZAP_TARGET: "http://app:4000"
   script:
     - mkdir -p /zap/wrk
