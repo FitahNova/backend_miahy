@@ -16,7 +16,7 @@ RUN apk upgrade --no-cache \
            /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
 WORKDIR /app
-ENV NODE_ENV=production
+ENV NODE_ENV=production PORT=4000
 
 COPY package.json package-lock.json tsconfig.json prisma7.config.ts ./
 COPY prisma ./prisma
@@ -25,6 +25,6 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=prisma-client /app/src/generated ./src/generated
 
 USER node
-EXPOSE 3000
+EXPOSE 4000
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "--import", "tsx", "src/index.ts"]
