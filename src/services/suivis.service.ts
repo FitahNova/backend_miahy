@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { JOURS_AVANT_A_CONTACTER } from "../config/constants.js";
+import { JOURS_AVANT_A_CONTACTER, TAILLE_PAGE } from "../config/constants.js";
 import {
   CanalContact,
   MotifClotureSuivi,
@@ -20,7 +20,6 @@ export interface UtilisateurConnecte {
   role: Role;
 }
 
-const LIMITE_HISTORIQUE = 100;
 
 const jourEnDate = (jour: string) => new Date(`${jour}T00:00:00.000Z`);
 const dateEnJour = (date: Date) => date.toISOString().slice(0, 10);
@@ -96,23 +95,30 @@ function filtreListe(liste: ListeSuivi, aujourdhui: string): Prisma.SuiviWhereIn
   return { clotureLe: null, ...parEcheance };
 }
 
-/** Une liste : à contacter, en retard, perdus de vue (échéance la plus ancienne d'abord), ou historique. */
-export async function listerSuivis(liste: ListeSuivi | "historique", utilisateur: UtilisateurConnecte) {
+/**
+ * Une liste, page par page (20 par page) : à contacter, en retard, perdus de vue (échéance la plus
+ * ancienne d'abord), ou historique (clôture la plus récente d'abord).
+ */
+export async function listerSuivis(
+  liste: ListeSuivi | "historique",
+  utilisateur: UtilisateurConnecte,
+  page = 1,
+  taille = TAILLE_PAGE,
+) {
   const aujourdhui = jourDuCentre();
-  const suivis =
-    liste === "historique"
-      ? await prisma.suivi.findMany({
-          where: { clotureLe: { not: null } },
-          orderBy: { clotureLe: "desc" },
-          take: LIMITE_HISTORIQUE,
-          select: selectionSuivi,
-        })
-      : await prisma.suivi.findMany({
-          where: filtreListe(liste, aujourdhui),
-          orderBy: [{ echeance: "asc" }, { id: "asc" }],
-          select: selectionSuivi,
-        });
-  return suivis.map((suivi) => presenter(suivi, utilisateur.role, aujourdhui));
+  const historique = liste === "historique";
+  const where = historique ? { clotureLe: { not: null } } : filtreListe(liste, aujourdhui);
+  const [suivis, total] = await prisma.$transaction([
+    prisma.suivi.findMany({
+      where,
+      orderBy: historique ? [{ clotureLe: "desc" }, { id: "desc" }] : [{ echeance: "asc" }, { id: "asc" }],
+      skip: (page - 1) * taille,
+      take: taille,
+      select: selectionSuivi,
+    }),
+    prisma.suivi.count({ where }),
+  ]);
+  return { suivis: suivis.map((suivi) => presenter(suivi, utilisateur.role, aujourdhui)), total, page, taille };
 }
 
 /** Nombre de suivis par liste (onglets et compteur du menu). */

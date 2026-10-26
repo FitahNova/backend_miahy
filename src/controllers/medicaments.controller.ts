@@ -26,6 +26,7 @@ import {
   renommerCategorie,
   supprimerCategorie,
 } from "../services/medicaments.service.js";
+import { TAILLE_PAGE, TAILLE_PAGE_MAXIMALE } from "../config/constants.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
 import { EVENEMENTS } from "../realtime/events.js";
@@ -94,8 +95,15 @@ export async function obtenirMedicaments(_requete: Request, reponse: Response) {
   reponse.json(await listerMedicaments());
 }
 
+// Pagination commune : ?page= (1 par défaut), ?taille= (20 par défaut, 100 au plus).
+const schemaPage = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  taille: z.coerce.number().int().min(1).max(TAILLE_PAGE_MAXIMALE).default(TAILLE_PAGE),
+});
+
 export async function obtenirMouvements(requete: Request, reponse: Response) {
-  reponse.json({ mouvements: await listerMouvementsDuMedicament(lireIdentifiant(requete.params.id)) });
+  const { page, taille } = schemaPage.parse(requete.query);
+  reponse.json(await listerMouvementsDuMedicament(lireIdentifiant(requete.params.id), page, taille));
 }
 
 export async function ajouterMedicament(requete: Request, reponse: Response) {
@@ -193,8 +201,10 @@ export async function modifierActifFournisseur(requete: Request, reponse: Respon
   reponse.json({ fournisseur: await changerActifFournisseur(lireIdentifiant(requete.params.id), actif, lireAuteur(requete)) });
 }
 
-export async function obtenirApprovisionnements(_requete: Request, reponse: Response) {
-  reponse.json({ approvisionnements: await listerApprovisionnements() });
+/** GET /api/medicaments/approvisionnements?page= : { approvisionnements, total, page, taille }. */
+export async function obtenirApprovisionnements(requete: Request, reponse: Response) {
+  const { page, taille } = schemaPage.parse(requete.query);
+  reponse.json(await listerApprovisionnements(page, taille));
 }
 
 /** GET /api/medicaments/approvisionnements/:id : bon de réception complet. */

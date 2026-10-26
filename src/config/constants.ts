@@ -22,6 +22,10 @@ export const JOURS_RETARD_PERDU_DE_VUE = 5;         // « Perdus de vue » : plu
 // Stock
 export const JOURS_ALERTE_PEREMPTION = 90;           // « Proche de péremption » : 3 mois avant la date [à valider avec la Direction]
 
+// Pagination : même taille de page pour toutes les listes de l'application.
+export const TAILLE_PAGE = 20;
+export const TAILLE_PAGE_MAXIMALE = 100;
+
 // Numérotation
 export const PREFIXE_NUMERO_DOSSIER = "MIA-";       // MIA-0001
 export const PREFIXE_NUMERO_FACTURE = "R-";         // R-0101

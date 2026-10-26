@@ -1,12 +1,12 @@
 import { prisma } from "../config/prisma.js";
 import { Prisma, TypeMouvement } from "../generated/prisma/client.js";
+import { TAILLE_PAGE } from "../config/constants.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { estPerime, observationInventaire } from "../utils/peremption.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 
 const CODE_VIOLATION_UNIQUE = "P2002";
-const LIMITE_MOUVEMENTS_AFFICHES = 200;
 const LIMITE_RECHERCHE = 20;
 
 // Liste fermée des formes.
@@ -431,25 +431,30 @@ export async function ajusterStock(id: number, quantite: number, motif: string, 
   }, OPTIONS_TRANSACTION);
 }
 
-export async function listerMouvementsDuMedicament(id: number) {
+export async function listerMouvementsDuMedicament(id: number, page = 1, taille = TAILLE_PAGE) {
   const medicament = await prisma.medicament.findUnique({ where: { id }, select: { id: true } });
   if (!medicament) {
     throw new ErreurHttp(404, "MEDICAMENT_INTROUVABLE");
   }
-  return prisma.mouvementStock.findMany({
-    where: { medicamentId: id },
-    orderBy: { date: "desc" },
-    take: LIMITE_MOUVEMENTS_AFFICHES,
-    select: {
-      id: true,
-      type: true,
-      quantite: true,
-      date: true,
-      motif: true,
-      prixAchatUnitaire: true,
-      utilisateur: { select: { id: true, nom: true } },
-    },
-  });
+  const [mouvements, total] = await prisma.$transaction([
+    prisma.mouvementStock.findMany({
+      where: { medicamentId: id },
+      orderBy: [{ date: "desc" }, { id: "desc" }],
+      skip: (page - 1) * taille,
+      take: taille,
+      select: {
+        id: true,
+        type: true,
+        quantite: true,
+        date: true,
+        motif: true,
+        prixAchatUnitaire: true,
+        utilisateur: { select: { id: true, nom: true } },
+      },
+    }),
+    prisma.mouvementStock.count({ where: { medicamentId: id } }),
+  ]);
+  return { mouvements, total, page, taille };
 }
 
 // ---------- Recherche pour les soignants et le comptoir ----------
@@ -636,23 +641,29 @@ export async function changerActifFournisseur(id: number, actif: boolean, auteur
 
 // ---------- Approvisionnements (R072) ----------
 
-export async function listerApprovisionnements() {
-  const mouvements = await prisma.mouvementStock.findMany({
-    where: { type: TypeMouvement.ENTREE, approvisionnementId: { not: null } },
-    orderBy: { date: "desc" },
-    take: LIMITE_MOUVEMENTS_AFFICHES,
-    select: {
-      id: true,
-      quantite: true,
-      prixAchatUnitaire: true,
-      date: true,
-      approvisionnementId: true,
-      medicament: { select: { nom: true } },
-      approvisionnement: { select: { dateReception: true, reference: true, fournisseur: { select: { nom: true } } } },
-    },
-  });
+/** Lignes d'approvisionnement, les plus récentes d'abord, page par page (20 par page). */
+export async function listerApprovisionnements(page = 1, taille = TAILLE_PAGE) {
+  const where = { type: TypeMouvement.ENTREE, approvisionnementId: { not: null } };
+  const [mouvements, total] = await prisma.$transaction([
+    prisma.mouvementStock.findMany({
+      where,
+      orderBy: [{ date: "desc" }, { id: "desc" }],
+      skip: (page - 1) * taille,
+      take: taille,
+      select: {
+        id: true,
+        quantite: true,
+        prixAchatUnitaire: true,
+        date: true,
+        approvisionnementId: true,
+        medicament: { select: { nom: true } },
+        approvisionnement: { select: { dateReception: true, reference: true, fournisseur: { select: { nom: true } } } },
+      },
+    }),
+    prisma.mouvementStock.count({ where }),
+  ]);
 
-  return mouvements.map((mouvement) => ({
+  const lignes = mouvements.map((mouvement) => ({
     id: mouvement.id,
     approvisionnementId: mouvement.approvisionnementId,
     date: mouvement.approvisionnement?.dateReception ?? mouvement.date,
@@ -663,6 +674,7 @@ export async function listerApprovisionnements() {
     prixAchatUnitaire: mouvement.prixAchatUnitaire,
     montant: mouvement.quantite * (mouvement.prixAchatUnitaire ?? 0),
   }));
+  return { approvisionnements: lignes, total, page, taille };
 }
 
 /**

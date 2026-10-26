@@ -12,7 +12,7 @@ import { lireIdentifiant } from "../utils/parametres.js";
 import { EVENEMENTS, type Evenement } from "../realtime/events.js";
 import { diffuser } from "../realtime/sse.js";
 
-const TAILLE_PAGE_PAR_DEFAUT = 20;
+const TAILLE_PAGE_PAR_DEFAUT = 20; // TAILLE_PAGE
 const LONGUEUR_MAX_RECHERCHE = 100;
 const LONGUEUR_MIN_MOTIF = 5;
 const LONGUEUR_MAX_MOTIF = 255; // colonne motif_annulation VARCHAR(255)
