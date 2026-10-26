@@ -34,7 +34,15 @@ const selectionSuivi = {
   clotureLe: true,
   motifCloture: true,
   rendezVousId: true,
-  rendezVous: { select: { statut: true } },
+  // Rendez-vous lié : date, motif et praticien servent au message (rappel, retard) envoyé au patient.
+  rendezVous: {
+    select: {
+      statut: true,
+      dateHeure: true,
+      motif: true,
+      praticien: { select: { civilite: true, prenom: true, nom: true, role: true } },
+    },
+  },
   type: { select: { id: true, nom: true } },
   patient: {
     select: {
@@ -58,9 +66,11 @@ type SuiviLu = Prisma.SuiviGetPayload<{ select: typeof selectionSuivi }>;
 function presenter(suivi: SuiviLu, role: Role, aujourdhui: string) {
   const { _count, contacts, patient, rendezVous, ...reste } = suivi;
   const manque = rendezVous?.statut === StatutRendezVous.ABSENT;
+  const rdv = rendezVous ? { dateHeure: rendezVous.dateHeure, motif: rendezVous.motif, praticien: rendezVous.praticien } : null;
   const echeance = dateEnJour(suivi.echeance);
   return {
     ...reste,
+    rendezVous: rdv,
     echeance,
     liste: suivi.clotureLe ? ("historique" as const) : classerSuivi(echeance, aujourdhui, manque),
     joursRetard: suivi.clotureLe ? 0 : joursDeRetard(echeance, aujourdhui),

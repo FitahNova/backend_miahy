@@ -7,7 +7,7 @@
  */
 import { prisma } from "../config/prisma.js";
 import { SOIGNANTS } from "../config/constants.js";
-import { Orientation, OrigineSuivi, Role, StatutDemandeAcces, StatutPassage, StatutRendezVous } from "../generated/prisma/client.js";
+import { MotifClotureSuivi, Orientation, OrigineSuivi, Role, StatutDemandeAcces, StatutPassage, StatutRendezVous } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
@@ -151,6 +151,16 @@ export async function creerRendezVous(
       entiteId: rdv.id,
       detail: { patientId: donnees.patientId, dateHeure: donnees.dateHeure.toISOString() },
     });
+    // Chaque rendez-vous est suivi : « À contacter » 3 jours avant (rappel), clôturé au « Venu »,
+    // en retard s'il est noté Absent, perdu de vue au-delà de 5 jours.
+    await creerSuiviAutomatique(tx, {
+      patientId: donnees.patientId,
+      motif: donnees.motif,
+      echeance: jourDuCentre(donnees.dateHeure),
+      origine: OrigineSuivi.RENDEZ_VOUS,
+      rendezVousId: rdv.id,
+      creeParId: auteur.id,
+    });
     return rdv;
   }, OPTIONS_TRANSACTION);
 }
@@ -237,7 +247,14 @@ export async function cloreRendezVous(id: number, statut: "ABSENT" | "ANNULE", a
       entite: "rendez_vous",
       entiteId: id,
     });
-    // R116 : un patient absent est à recontacter, sauf si un suivi existe déjà pour ce rendez-vous (revue).
+    // Annulé : plus rien à relancer, son suivi est clôturé (le patient est prévenu par SMS ou WhatsApp).
+    if (statut === "ANNULE") {
+      await tx.suivi.updateMany({
+        where: { rendezVousId: id, clotureLe: null },
+        data: { clotureLe: new Date(), motifCloture: MotifClotureSuivi.RENDEZ_VOUS_ANNULE, clotureParId: auteur.id },
+      });
+    }
+    // R116 : un patient absent est à recontacter ; son suivi existe déjà, sauf pour un ancien rendez-vous.
     if (statut === "ABSENT") {
       const dejaSuivi = await tx.suivi.findUnique({ where: { rendezVousId: id }, select: { id: true } });
       if (!dejaSuivi) {

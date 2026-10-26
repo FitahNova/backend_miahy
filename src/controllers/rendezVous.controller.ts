@@ -45,7 +45,7 @@ export async function lister(requete: Request, reponse: Response) {
 export async function creer(requete: Request, reponse: Response) {
   const donnees = schemaRendezVous.parse(requete.body);
   const rdv = await creerRendezVous({ ...donnees, dateHeure: new Date(donnees.dateHeure) }, lireUtilisateur(requete));
-  diffuser(EVENEMENTS.RENDEZ_VOUS_MODIFIE, { rendezVousId: rdv.id });
+  diffuser([EVENEMENTS.RENDEZ_VOUS_MODIFIE, EVENEMENTS.SUIVIS_MODIFIES], { rendezVousId: rdv.id });
   reponse.status(201).json({ rendezVous: rdv });
 }
 
@@ -65,7 +65,7 @@ export async function clore(requete: Request, reponse: Response) {
   const id = lireIdentifiant(requete.params.id);
   const { statut } = schemaCloture.parse(requete.body);
   await cloreRendezVous(id, statut, lireUtilisateur(requete));
-  diffuser(statut === "ABSENT" ? [EVENEMENTS.RENDEZ_VOUS_MODIFIE, EVENEMENTS.SUIVIS_MODIFIES] : EVENEMENTS.RENDEZ_VOUS_MODIFIE, {
+  diffuser([EVENEMENTS.RENDEZ_VOUS_MODIFIE, EVENEMENTS.SUIVIS_MODIFIES], {
     rendezVousId: id,
   });
   reponse.status(204).end();

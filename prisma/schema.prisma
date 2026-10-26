@@ -669,6 +669,7 @@ model TypeSuivi {
 
 enum OrigineSuivi {
   CONSULTATION       @map("consultation")
+  RENDEZ_VOUS        @map("rendez_vous") // rendez-vous pris : rappel avant la date, puis retard s'il est manqué
   RENDEZ_VOUS_ABSENT @map("rendez_vous_absent")
   MANUEL             @map("manuel")
 
@@ -676,16 +677,18 @@ enum OrigineSuivi {
 }
 
 enum MotifClotureSuivi {
-  RETOUR_PATIENT @map("retour_patient")
-  MANUELLE       @map("manuelle")
+  RETOUR_PATIENT     @map("retour_patient")
+  MANUELLE           @map("manuelle")
+  RENDEZ_VOUS_ANNULE @map("rendez_vous_annule")
 
   @@map("motif_cloture_suivi")
 }
 
 enum CanalContact {
-  APPEL @map("appel")
-  SMS   @map("sms")
-  AUTRE @map("autre")
+  APPEL    @map("appel")
+  SMS      @map("sms")
+  WHATSAPP @map("whatsapp")
+  AUTRE    @map("autre")
 
   @@map("canal_contact")
 }
