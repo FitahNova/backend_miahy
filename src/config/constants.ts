@@ -22,6 +22,9 @@ export const JOURS_RETARD_PERDU_DE_VUE = 5;         // « Perdus de vue » : plu
 // Stock
 export const JOURS_ALERTE_PEREMPTION = 90;           // « Proche de péremption » : 3 mois avant la date [à valider avec la Direction]
 
+// Rendez-vous : un patient n'a pas deux rendez-vous à moins de 30 minutes d'écart (même date, même heure).
+export const DUREE_CRENEAU_RENDEZ_VOUS_MINUTES = 30;
+
 // Pagination : même taille de page pour toutes les listes de l'application.
 export const TAILLE_PAGE = 20;
 export const TAILLE_PAGE_MAXIMALE = 100;

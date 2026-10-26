@@ -5,6 +5,7 @@ import {
   creerRendezVous,
   lireCompteurs,
   listerPraticiens,
+  listerCreneauxOccupes,
   listerRendezVous,
   marquerVenu,
 } from "../services/rendezVous.service.js";
@@ -17,6 +18,7 @@ const schemaPeriode = z.object({ du: z.iso.date(), au: z.iso.date() }).refine((p
   path: ["au"],
   message: "PERIODE_INVALIDE",
 });
+const schemaDisponibilites = z.object({ jour: z.iso.date(), praticienId: z.coerce.number().int().positive() });
 
 const schemaRendezVous = z
   .object({
@@ -39,6 +41,12 @@ function lireUtilisateur(requete: Request) {
 export async function lister(requete: Request, reponse: Response) {
   const periode = schemaPeriode.parse(requete.query);
   reponse.json({ rendezVous: await listerRendezVous(periode, lireUtilisateur(requete)) });
+}
+
+/** GET /api/rendez-vous/disponibilites?jour=AAAA-MM-JJ&praticienId=123 */
+export async function disponibilites(requete: Request, reponse: Response) {
+  const { jour, praticienId } = schemaDisponibilites.parse(requete.query);
+  reponse.json({ creneauxOccupes: await listerCreneauxOccupes(jour, praticienId) });
 }
 
 /** POST /api/rendez-vous */
