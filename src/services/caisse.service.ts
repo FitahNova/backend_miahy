@@ -1,5 +1,12 @@
 import { prisma } from "../config/prisma.js";
-import { ModePaiement, StatutFacture, StatutPassage } from "../generated/prisma/client.js";
+import { ModePaiement, StatutFacture, type Prisma } from "../generated/prisma/client.js";
+import {
+  attenduDuTiroir,
+  ecartDeCaisse,
+  totalDuComptage,
+  verifierCoupures,
+  type Coupure,
+} from "../utils/comptageCaisse.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
@@ -23,6 +30,21 @@ export function lireJourCourant(): string {
 function lireBornesDuJour(jour: string) {
   const debut = new Date(`${jour}T00:00:00${DECALAGE_FUSEAU}`);
   return { debut, fin: new Date(debut.getTime() + MILLISECONDES_PAR_JOUR) };
+}
+
+function jourEnDate(jour: string) {
+  return new Date(`${jour}T00:00:00.000Z`);
+}
+
+type ClientLecture = Prisma.TransactionClient | typeof prisma;
+
+/** Refuse délivrance, remise et encaissement une fois la journée de caisse clôturée. */
+export async function exigerJourneeOuverte(db: ClientLecture) {
+  const cloture = await db.clotureCaisse.findUnique({
+    where: { jour: jourEnDate(lireJourCourant()) },
+    select: { id: true },
+  });
+  if (cloture) throw new ErreurHttp(409, "JOURNEE_CLOTUREE");
 }
 
 // ---------- Factures à encaisser ----------
@@ -69,6 +91,7 @@ export async function calculerResteDuDuPatient(patientId: number) {
 
 export async function modifierRemiseFacture(factureId: number, montant: number, utilisateurId: number) {
   return prisma.$transaction(async (tx) => {
+    await exigerJourneeOuverte(tx);
     await tx.$queryRaw`SELECT id FROM facture WHERE id = ${factureId} FOR UPDATE`;
     const facture = await tx.facture.findUnique({ where: { id: factureId } });
     if (!facture) throw new ErreurHttp(404, "FACTURE_INTROUVABLE");
@@ -103,11 +126,7 @@ export async function enregistrerNouveauPaiement(
   utilisateurId: number,
 ) {
   return prisma.$transaction(async (tx) => {
-    const jourCourant = lireJourCourant();
-    const clotureDuJour = await tx.clotureCaisse.findUnique({
-      where: { jour: new Date(`${jourCourant}T00:00:00.000Z`) },
-    });
-    if (clotureDuJour) throw new ErreurHttp(409, "JOURNEE_CLOTUREE");
+    await exigerJourneeOuverte(tx);
 
     await tx.$queryRaw`SELECT id FROM facture WHERE id = ${factureId} FOR UPDATE`;
     const avant = await tx.facture.findUnique({ where: { id: factureId }, select: { statut: true } });
@@ -215,52 +234,97 @@ export async function obtenirRecuFacture(factureId: number) {
 
 // ---------- Clôture quotidienne ----------
 
-async function calculerTotauxDuJour(jour: string) {
+const MODES_AFFICHES = ["ESPECES", "MOBILE_MONEY", "AUTRE"] as const;
+export type ModeAffiche = (typeof MODES_AFFICHES)[number];
+export type LigneEncaissement = { mode: ModeAffiche; nombre: number; total: number };
+
+async function syntheseDuJour(db: ClientLecture, jour: string) {
   const { debut, fin } = lireBornesDuJour(jour);
-  const groupes = await prisma.paiement.groupBy({
-    by: ["mode"],
-    where: { date: { gte: debut, lt: fin } },
-    _sum: { montant: true },
-  });
-  const parMode = groupes.map((groupe) => ({ mode: groupe.mode, total: groupe._sum.montant ?? 0 }));
-  const totalAttendu = parMode.reduce((somme, ligne) => somme + ligne.total, 0);
-  return { totalAttendu, parMode };
+  const [groupes, reste] = await Promise.all([
+    db.paiement.groupBy({
+      by: ["mode"],
+      where: { date: { gte: debut, lt: fin } },
+      _sum: { montant: true },
+      _count: { _all: true },
+    }),
+    db.$queryRaw<{ total: number }[]>`
+      SELECT COALESCE(SUM(GREATEST("part_patient" - "remise" - "montant_paye", 0)), 0)::int AS total
+      FROM "facture"
+      WHERE "cree_le" >= ${debut} AND "cree_le" < ${fin}
+        AND "statut" <> 'annulee'::"statut_facture"
+    `,
+  ]);
+
+  const lignes = new Map<ModeAffiche, LigneEncaissement>(
+    MODES_AFFICHES.map((mode) => [mode, { mode, nombre: 0, total: 0 }]),
+  );
+  for (const groupe of groupes) {
+    const mode = groupe.mode === ModePaiement.ESPECES || groupe.mode === ModePaiement.MOBILE_MONEY ? groupe.mode : "AUTRE";
+    const ligne = lignes.get(mode)!;
+    ligne.nombre += groupe._count._all;
+    ligne.total += groupe._sum.montant ?? 0;
+  }
+  const parMode = MODES_AFFICHES.map((mode) => lignes.get(mode)!);
+  return {
+    debut,
+    fin,
+    parMode,
+    totalEncaisse: parMode.reduce((somme, ligne) => somme + ligne.total, 0),
+    especes: lignes.get("ESPECES")!.total,
+    nonEncaisse: Number(reste[0]?.total ?? 0),
+  };
 }
 
 export async function calculerApercuCloture(jour: string) {
-  const { totalAttendu, parMode } = await calculerTotauxDuJour(jour);
-  const cloture = await prisma.clotureCaisse.findUnique({ where: { jour: new Date(`${jour}T00:00:00.000Z`) } });
-  return { jour, totalAttendu, parMode, cloture };
+  const [synthese, cloture] = await Promise.all([
+    syntheseDuJour(prisma, jour),
+    prisma.clotureCaisse.findUnique({ where: { jour: jourEnDate(jour) } }),
+  ]);
+  return {
+    jour,
+    cabinet: CABINET,
+    totalAttendu: synthese.totalEncaisse,
+    parMode: synthese.parMode,
+    especes: synthese.especes,
+    nonEncaisse: synthese.nonEncaisse,
+    cloture,
+  };
 }
 
 export async function cloturerLaJournee(
-  donnees: { jour: string; totalCompte: number; commentaire?: string | null },
+  donnees: { jour: string; fondDeCaisse: number; coupures: Coupure[]; commentaire?: string | null },
   utilisateurId: number,
 ) {
   if (donnees.jour > lireJourCourant()) throw new ErreurHttp(400, "JOUR_FUTUR");
+  verifierCoupures(donnees.coupures);
 
-  const jourCloture = new Date(`${donnees.jour}T00:00:00.000Z`);
+  const jourCloture = jourEnDate(donnees.jour);
+  const totalCompte = totalDuComptage(donnees.coupures);
 
   return prisma.$transaction(async (tx) => {
     const existante = await tx.clotureCaisse.findUnique({ where: { jour: jourCloture } });
     if (existante) throw new ErreurHttp(409, "JOURNEE_DEJA_CLOTUREE");
 
-    const { debut, fin } = lireBornesDuJour(donnees.jour);
-    const somme = await tx.paiement.aggregate({
-      where: { date: { gte: debut, lt: fin } },
-      _sum: { montant: true },
-    });
-    const totalAttendu = somme._sum.montant ?? 0;
+    const synthese = await syntheseDuJour(tx, donnees.jour);
+    const totalAttendu = attenduDuTiroir(donnees.fondDeCaisse, synthese.especes);
 
     const cloture = await tx.clotureCaisse.create({
       data: {
         utilisateurId,
         jour: jourCloture,
+        fondDeCaisse: donnees.fondDeCaisse,
         totalAttendu,
-        totalCompte: donnees.totalCompte,
-        ecart: donnees.totalCompte - totalAttendu,
+        totalCompte,
+        ecart: ecartDeCaisse(totalCompte, totalAttendu),
+        detailComptage: donnees.coupures,
         commentaire: donnees.commentaire ?? null,
       },
+    });
+
+    // R110 : les paiements du jour sont figés avec la clôture.
+    await tx.paiement.updateMany({
+      where: { date: { gte: synthese.debut, lt: synthese.fin }, clotureId: null },
+      data: { clotureId: cloture.id },
     });
 
     await enregistrerAudit(tx, {
@@ -268,7 +332,7 @@ export async function cloturerLaJournee(
       action: "CLOTURE_CAISSE",
       entite: "cloture_caisse",
       entiteId: cloture.id,
-      detail: { jour: donnees.jour, ecart: cloture.ecart },
+      detail: { jour: donnees.jour, ecart: cloture.ecart, fondDeCaisse: donnees.fondDeCaisse },
     });
 
     return cloture;

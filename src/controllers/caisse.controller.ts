@@ -36,7 +36,11 @@ const schemaJour = z.iso.date();
 
 const schemaCloture = z.object({
   jour: schemaJour,
-  totalCompte: z.number().int().nonnegative(),
+  fondDeCaisse: z.number().int().nonnegative(),
+  coupures: z.array(z.object({
+    valeur: z.number().int().positive(),
+    quantite: z.number().int().nonnegative(),
+  })).length(7),
   commentaire: z.string().trim().nullish(),
 });
 
