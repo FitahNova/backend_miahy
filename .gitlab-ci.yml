@@ -1,3 +1,10 @@
+include:
+  - project: 'miahy1/ci-templates'
+    file:
+      - /code-quality.yml
+      - /security-scan.yml
+      - /container-scan.yml
+
 stages:
   - build
   - test
@@ -114,22 +121,6 @@ image_scan:
   script:
     - trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_DIGEST_REF"
 
-dast:
-  services:
-    - name: "$IMAGE_CANDIDATE"
-      alias: app
-      variables:
-        NODE_ENV: "production"
-        DATABASE_URL: "postgresql://postgres:ci@db:5432/ci"
-        BD_CONNEXION: "tcp"
-        JWT_SECRET: "000000000000000000000000000000000000000000000000"
-        GMAIL_USER: "ci@example.com"
-        GMAIL_APP_PASSWORD: "factice"
-    - name: postgres:17-alpine
-      alias: db
-      variables:
-        POSTGRES_PASSWORD: "ci"
-        POSTGRES_DB: "ci"
 
 sign_image:
   stage: sign_image
