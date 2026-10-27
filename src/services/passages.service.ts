@@ -107,16 +107,23 @@ export async function listerPassagesDeLaFile(statuts: StatutPassage[], utilisate
     select: selectionPassage,
   });
 
-  // Règle unique, en attente : urgences d'abord, puis patients venus sur rendez-vous, puis les autres ;
-  // dans chaque groupe, ordre d'arrivée.
-  const rang = (p: { urgence: boolean; statut: StatutPassage; rendezVous: { id: number } | null }) => {
+  // En attente : urgences d'abord, puis rendez-vous par heure prévue, puis les autres par arrivée.
+  const rang = (p: { urgence: boolean; statut: StatutPassage; rendezVous: { id: number; dateHeure: Date } | null }) => {
     if (p.statut !== StatutPassage.EN_ATTENTE) return 2;
     if (p.urgence) return 0;
     return p.rendezVous ? 1 : 2;
   };
 
   return passages
-    .sort((a, b) => rang(a) - rang(b) || a.heureArrivee.getTime() - b.heureArrivee.getTime())
+    .sort((a, b) => {
+      const differenceRang = rang(a) - rang(b);
+      if (differenceRang !== 0) return differenceRang;
+      if (rang(a) === 1 && a.rendezVous && b.rendezVous) {
+        const differenceRendezVous = a.rendezVous.dateHeure.getTime() - b.rendezVous.dateHeure.getTime();
+        if (differenceRendezVous !== 0) return differenceRendezVous;
+      }
+      return a.heureArrivee.getTime() - b.heureArrivee.getTime();
+    })
     .map(ajouterIndicateursAttente);
 }
 
