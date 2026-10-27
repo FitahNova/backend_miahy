@@ -46,6 +46,8 @@ interface Evenement {
   libelle: string;
   detail: string | null;
   consultationId?: number;
+  passageId?: number;
+  factureId?: number;
   corrections?: { date: Date; auteur: string; texte: string }[];
 }
 
@@ -246,6 +248,7 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
         type: "ORDONNANCE",
         libelle: `Ordonnance · ${passage.ordonnance.lignes.length} ligne(s)`,
         detail: null,
+        passageId: passage.id,
       });
     }
 
@@ -256,6 +259,7 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
           type: "PAIEMENT",
           libelle: `Paiement · ${paiement.montant} Ar`,
           detail: paiement.mode,
+          factureId: facture.id,
         });
       }
     }
