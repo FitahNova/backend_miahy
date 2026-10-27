@@ -46,7 +46,7 @@ export interface DonneesNouveauPassage {
   orientation?: Orientation | null;
   urgence?: boolean;
   praticienId?: number | null;
-  constantes?: { tension?: string; poidsKg?: number; pouls?: number; temperature?: number; glycemie?: number };
+  constantes?: { tension?: string; poidsKg?: number; pouls?: number; temperature?: number; glycemie?: number; spo2?: number };
   allergies?: string | null;
   sensible?: boolean;
 }
@@ -207,6 +207,7 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
         pouls: donnees.constantes.pouls,
         temperature: donnees.constantes.temperature,
         glycemie: donnees.constantes.glycemie,
+        spo2: donnees.constantes.spo2,
       },
     });
   }

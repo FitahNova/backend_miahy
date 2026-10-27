@@ -47,6 +47,7 @@ const schemaNouveauPassage = z.object({
     pouls: z.number().int().min(20).max(250).optional(),
     temperature: z.number().min(30).max(45).optional(),
     glycemie: z.number().positive().max(10).optional(),
+    spo2: z.number().int().min(50).max(100).optional(),
   }).optional(),
   allergies: z.string().trim().max(2000).nullable().optional(),
   sensible: z.boolean().optional(),

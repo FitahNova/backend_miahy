@@ -162,16 +162,24 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
     ? { date: prochain.dateHeure, motif: prochain.motif, avec: prochain.praticien?.nom ?? null }
     : null;
 
+  // Mesures de chaque venue : prises à l'arrivée par la secrétaire ou en consultation. Visibles dès la saisie,
+  // datées de la signature, ou de l'arrivée tant que la consultation n'est pas signée.
+  const aDesMesures = (c: (typeof passages)[number]["consultation"]) =>
+    Boolean(c && (c.tension || c.poidsKg !== null || c.pouls !== null || c.temperature !== null || c.spo2 !== null || c.glycemie !== null));
   const mesures = clinique
-    ? signees.map(({ passage, signeeLe }) => ({
-        date: signeeLe,
-        tension: passage.consultation?.tension ?? null,
-        poidsKg: versNombre(passage.consultation?.poidsKg),
-        pouls: passage.consultation?.pouls ?? null,
-        temperature: versNombre(passage.consultation?.temperature),
-        spo2: passage.consultation?.spo2 ?? null,
-        glycemie: versNombre(passage.consultation?.glycemie),
-      }))
+    ? passages
+        .filter((passage) => aDesMesures(passage.consultation))
+        .map((passage) => ({ passage, date: passage.consultation?.signeeLe ?? passage.heureArrivee }))
+        .sort((a, b) => b.date.getTime() - a.date.getTime())
+        .map(({ passage, date }) => ({
+          date,
+          tension: passage.consultation?.tension ?? null,
+          poidsKg: versNombre(passage.consultation?.poidsKg),
+          pouls: passage.consultation?.pouls ?? null,
+          temperature: versNombre(passage.consultation?.temperature),
+          spo2: passage.consultation?.spo2 ?? null,
+          glycemie: versNombre(passage.consultation?.glycemie),
+        }))
     : [];
 
   // Prescriptions avec leur état de délivrance (onglet « Prescriptions »).
