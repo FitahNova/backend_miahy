@@ -92,6 +92,7 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
           sexe: true,
           dateNaissance: true,
           allergies: true,
+          sensible: true,
           programme: { select: { nom: true } },
         },
       },

@@ -46,6 +46,9 @@ export interface DonneesNouveauPassage {
   orientation?: Orientation | null;
   urgence?: boolean;
   praticienId?: number | null;
+  constantes?: { tension?: string; poidsKg?: number; pouls?: number; temperature?: number; glycemie?: number };
+  allergies?: string | null;
+  sensible?: boolean;
 }
 
 function ajouterIndicateursAttente<T extends { statut: StatutPassage; heureArrivee: Date }>(passage: T) {
@@ -128,11 +131,11 @@ const STATUTS_PASSAGE_EN_COURS: StatutPassage[] = [
 ];
 
 /** Crée un passage dans la file (arrivée enregistrée par la secrétaire). */
-export async function creerNouveauPassage(donnees: DonneesNouveauPassage) {
+export async function creerNouveauPassage(donnees: DonneesNouveauPassage, auteurId?: number) {
   const orientation =
     donnees.praticienId != null ? orientationDuPraticien(await verifierPraticien(donnees.praticienId)) : donnees.orientation;
   return prisma.$transaction(
-    (transaction) => creerPassageDansTransaction(transaction, { ...donnees, orientation }),
+    (transaction) => creerPassageDansTransaction(transaction, { ...donnees, orientation }, auteurId),
     OPTIONS_TRANSACTION,
   );
 }
@@ -142,7 +145,7 @@ export async function creerNouveauPassage(donnees: DonneesNouveauPassage) {
  * Verrou sur le patient : deux postes ne peuvent pas créer chacun un passage au même instant (R029).
  * @throws 404 PATIENT_INTROUVABLE, 409 PASSAGE_DEJA_EN_COURS, 422 MOTIF_GROSSESSE_INCOMPATIBLE
  */
-export async function creerPassageDansTransaction(transaction: Prisma.TransactionClient, donnees: DonneesNouveauPassage) {
+export async function creerPassageDansTransaction(transaction: Prisma.TransactionClient, donnees: DonneesNouveauPassage, auteurId?: number) {
   const verrou = await transaction.$queryRaw<{ actif: boolean }[]>`
     SELECT actif FROM patient WHERE id = ${donnees.patientId} FOR UPDATE`;
   if (verrou.length === 0 || !verrou[0].actif) {
@@ -162,6 +165,22 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
     throw new ErreurHttp(409, "PASSAGE_DEJA_EN_COURS");
   }
 
+  if (auteurId !== undefined) {
+    const changements: { allergies?: string | null; sensible?: boolean } = {};
+    if (donnees.allergies !== undefined) changements.allergies = donnees.allergies;
+    if (donnees.sensible !== undefined) changements.sensible = donnees.sensible;
+    if (Object.keys(changements).length > 0) {
+      await transaction.patient.update({ where: { id: donnees.patientId }, data: changements });
+      await enregistrerAudit(transaction, {
+        utilisateurId: auteurId,
+        action: "PATIENT_MODIFIE",
+        entite: "patient",
+        entiteId: donnees.patientId,
+        detail: { champs: Object.keys(changements) },
+      });
+    }
+  }
+
   const passage = await transaction.passage.create({
     data: {
       patientId: donnees.patientId,
@@ -172,6 +191,18 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
     },
     select: selectionPassage,
   });
+  if (donnees.constantes && Object.keys(donnees.constantes).length > 0) {
+    await transaction.consultation.create({
+      data: {
+        passageId: passage.id,
+        tension: donnees.constantes.tension,
+        poidsKg: donnees.constantes.poidsKg,
+        pouls: donnees.constantes.pouls,
+        temperature: donnees.constantes.temperature,
+        glycemie: donnees.constantes.glycemie,
+      },
+    });
+  }
   // Le patient est revenu : ses suivis échus ou proches sont clôturés (R128).
   await cloturerSuivisAuRetour(transaction, donnees.patientId);
   return passage;

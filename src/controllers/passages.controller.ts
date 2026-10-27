@@ -41,6 +41,15 @@ const schemaNouveauPassage = z.object({
   urgence: z.boolean().optional(),
   // Arrivée : le patient est affecté à un praticien (médecin, médecin chef ou sage-femme).
   praticienId: z.number().int().positive(),
+  constantes: z.object({
+    tension: z.string().trim().regex(/^\d{2,3}\/\d{2,3}$/).optional(),
+    poidsKg: z.number().positive().max(400).optional(),
+    pouls: z.number().int().min(20).max(250).optional(),
+    temperature: z.number().min(30).max(45).optional(),
+    glycemie: z.number().positive().max(10).optional(),
+  }).optional(),
+  allergies: z.string().trim().max(2000).nullable().optional(),
+  sensible: z.boolean().optional(),
 });
 
 const schemaUrgence = z.object({ urgence: z.boolean() });
@@ -56,7 +65,7 @@ export async function listerFileAttente(requete: Request, reponse: Response) {
 
 export async function creerPassage(requete: Request, reponse: Response) {
   const donnees = schemaNouveauPassage.parse(requete.body);
-  const passage = await creerNouveauPassage(donnees);
+  const passage = await creerNouveauPassage(donnees, lireUtilisateur(requete).id);
   diffuser([EVENEMENTS.FILE_MODIFIEE, EVENEMENTS.SUIVIS_MODIFIES], { passageId: passage.id });
   reponse.status(201).json({ passage });
 }
