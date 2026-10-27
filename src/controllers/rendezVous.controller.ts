@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
+import { CanalContact, ResultatContact } from "../generated/prisma/client.js";
 import {
   cloreRendezVous,
   creerRendezVous,
@@ -30,7 +31,24 @@ const schemaRendezVous = z
   })
   .strict();
 
-const schemaCloture = z.object({ statut: z.enum(["ABSENT", "ANNULE"]) }).strict();
+// Annulation : on note aussi comment le patient a été prévenu (appel, SMS, WhatsApp…) et le résultat.
+const schemaCloture = z
+  .object({
+    statut: z.enum(["ABSENT", "ANNULE"]),
+    contact: z
+      .object({
+        canal: z.enum(CanalContact),
+        resultat: z.enum(ResultatContact),
+        note: z.string().trim().max(200).nullish(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .refine((donnees) => donnees.statut === "ANNULE" || !donnees.contact, {
+    message: "Le contact se note seulement à l'annulation",
+    path: ["contact"],
+  });
 
 function lireUtilisateur(requete: Request) {
   if (!requete.utilisateur) throw new ErreurHttp(401, "CONNEXION_REQUISE");
@@ -71,8 +89,8 @@ export async function venu(requete: Request, reponse: Response) {
 /** POST /api/rendez-vous/:id/cloture : absent ou annulé. */
 export async function clore(requete: Request, reponse: Response) {
   const id = lireIdentifiant(requete.params.id);
-  const { statut } = schemaCloture.parse(requete.body);
-  await cloreRendezVous(id, statut, lireUtilisateur(requete));
+  const { statut, contact } = schemaCloture.parse(requete.body);
+  await cloreRendezVous(id, statut, lireUtilisateur(requete), contact);
   diffuser([EVENEMENTS.RENDEZ_VOUS_MODIFIE, EVENEMENTS.SUIVIS_MODIFIES], {
     rendezVousId: id,
   });

@@ -7,7 +7,7 @@
  */
 import { prisma } from "../config/prisma.js";
 import { DUREE_CRENEAU_RENDEZ_VOUS_MINUTES, SOIGNANTS } from "../config/constants.js";
-import { MotifClotureSuivi, Orientation, OrigineSuivi, Role, StatutDemandeAcces, StatutPassage, StatutRendezVous } from "../generated/prisma/client.js";
+import { CanalContact, MotifClotureSuivi, Orientation, OrigineSuivi, ResultatContact, Role, StatutDemandeAcces, StatutPassage, StatutRendezVous } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
@@ -285,7 +285,19 @@ export async function marquerVenu(id: number, auteur: UtilisateurConnecte) {
  * Absent ou annulé. Absent : seulement le jour même ou après. Annulé : tant qu'il est prévu.
  * @throws 409 RENDEZ_VOUS_A_VENIR (absence notée avant le jour du rendez-vous)
  */
-export async function cloreRendezVous(id: number, statut: "ABSENT" | "ANNULE", auteur: UtilisateurConnecte) {
+/** Comment le patient a été prévenu de l'annulation : gardé dans l'historique de son suivi. */
+export interface ContactAnnulation {
+  canal: CanalContact;
+  resultat: ResultatContact;
+  note?: string | null;
+}
+
+export async function cloreRendezVous(
+  id: number,
+  statut: "ABSENT" | "ANNULE",
+  auteur: UtilisateurConnecte,
+  contact?: ContactAnnulation,
+) {
   return prisma.$transaction(async (tx) => {
     const rdv = await lireRendezVousPrevu(tx, id);
     if (statut === "ABSENT" && jourDuCentre(rdv.dateHeure) > jourDuCentre(new Date())) {
@@ -298,8 +310,32 @@ export async function cloreRendezVous(id: number, statut: "ABSENT" | "ANNULE", a
       entite: "rendez_vous",
       entiteId: id,
     });
-    // Annulé : plus rien à relancer, son suivi est clôturé (le patient est prévenu par SMS ou WhatsApp).
+    // Annulé : le contact (appel, SMS, WhatsApp… et son résultat) est noté dans l'historique du suivi,
+    // puis le suivi est clôturé. Un ancien rendez-vous sans suivi en reçoit un, pour garder cette trace.
     if (statut === "ANNULE") {
+      const suivi =
+        (await tx.suivi.findUnique({ where: { rendezVousId: id }, select: { id: true } })) ??
+        (contact
+          ? await creerSuiviAutomatique(tx, {
+              patientId: rdv.patientId,
+              motif: rdv.motif,
+              echeance: jourDuCentre(rdv.dateHeure),
+              origine: OrigineSuivi.RENDEZ_VOUS,
+              rendezVousId: id,
+              creeParId: auteur.id,
+            })
+          : null);
+      if (suivi && contact) {
+        await tx.contactSuivi.create({
+          data: {
+            suiviId: suivi.id,
+            canal: contact.canal,
+            resultat: contact.resultat,
+            note: contact.note?.trim() ? `Annulation du rendez-vous · ${contact.note.trim()}`.slice(0, 255) : "Annulation du rendez-vous",
+            auteurId: auteur.id,
+          },
+        });
+      }
       await tx.suivi.updateMany({
         where: { rendezVousId: id, clotureLe: null },
         data: { clotureLe: new Date(), motifCloture: MotifClotureSuivi.RENDEZ_VOUS_ANNULE, clotureParId: auteur.id },
