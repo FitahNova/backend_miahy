@@ -43,14 +43,30 @@ build:
 
 test_unit:
   stage: test
+  variables:
+    NODE_ENV: "test"
+    DATABASE_URL: "postgresql://postgres:ci@localhost:5432/ci"
+    JWT_SECRET: "000000000000000000000000000000000000000000000000"
+    GMAIL_USER: "ci@example.com"
+    GMAIL_APP_PASSWORD: "factice"
   script:
     - npm ci || npm ci || npm ci
+    - node_modules/.bin/prisma generate --config prisma7.config.ts
     - npm run test:unit
 
 test_integration:
   stage: test
+  services:
+    - name: postgres:17-alpine
+      alias: db
+      variables:
+        POSTGRES_PASSWORD: "ci"
+        POSTGRES_DB: "ci"
+  variables:
+    DATABASE_URL_TEST: "postgresql://postgres:ci@db:5432/ci"
   script:
     - npm ci || npm ci || npm ci
+    - node_modules/.bin/prisma generate --config prisma7.config.ts
     - npm run test:integration
 
 secret_detection:
