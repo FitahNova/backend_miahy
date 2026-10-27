@@ -35,6 +35,14 @@ function ajouterJours(jour: string, nombre: number): string {
   return jourDuCentre(new Date(debutDuJour(jour).getTime() + nombre * MS_PAR_JOUR + MS_PAR_JOUR / 2));
 }
 
+/** Même jour/mois l'année précédente, en ramenant le 29 février au dernier jour du mois si besoin. */
+function reculerUneAnnee(jour: string): string {
+  const [annee, mois, date] = jour.split("-").map(Number);
+  const anneeCible = annee - 1;
+  const dernierJour = new Date(Date.UTC(anneeCible, mois, 0)).getUTCDate();
+  return `${anneeCible}-${String(mois).padStart(2, "0")}-${String(Math.min(date, dernierJour)).padStart(2, "0")}`;
+}
+
 // Le Médecin chef voit le même tableau de bord que la Direction, finances comprises (décision du 25/10/2026).
 const finances = (role: Role) => role === Role.DIRECTION || role === Role.MEDECIN_CHEF;
 
@@ -201,13 +209,16 @@ function decouper(periode: Periode, aujourdhui: string): Tranche[] {
   const tranches: Tranche[] = [];
   if (periode === "12m") {
     const [annee, mois] = aujourdhui.split("-").map(Number);
+    const finCourante = ajouterJours(aujourdhui, 1);
     for (let k = MOIS_PAR_AN - 1; k >= 0; k--) {
       const date = new Date(Date.UTC(annee, mois - 1 - k, 1));
       const suivant = new Date(Date.UTC(annee, mois - k, 1));
+      const debut = date.toISOString().slice(0, 10);
       tranches.push({
         libelle: NOMS_MOIS[date.getUTCMonth()],
-        debut: date.toISOString().slice(0, 10),
-        fin: suivant.toISOString().slice(0, 10),
+        debut,
+        // Le mois courant s'arrête aujourd'hui ; aucun jour futur n'entre dans les chiffres.
+        fin: k === 0 ? finCourante : suivant.toISOString().slice(0, 10),
       });
     }
     return tranches;
@@ -237,11 +248,16 @@ export async function obtenirEvolution(periode: Periode, role: Role) {
   const debut = debutDuJour(tranches[0].debut);
   const fin = debutDuJour(tranches[tranches.length - 1].fin);
   const duree = fin.getTime() - debut.getTime();
-  const debutPrecedent = new Date(debut.getTime() - duree);
+  const debutPrecedent = periode === "12m"
+    ? debutDuJour(reculerUneAnnee(tranches[0].debut))
+    : new Date(debut.getTime() - duree);
+  const finPrecedente = periode === "12m"
+    ? debutDuJour(reculerUneAnnee(tranches[tranches.length - 1].fin))
+    : debut;
 
   const [activite, precedente] = await Promise.all([
     lireActivite(debut, fin, avecFinances),
-    lireActivite(debutPrecedent, debut, avecFinances),
+    lireActivite(debutPrecedent, finPrecedente, avecFinances),
   ]);
 
   const points = tranches.map((tranche) => {
@@ -259,6 +275,8 @@ export async function obtenirEvolution(periode: Periode, role: Role) {
   return {
     periode,
     jours,
+    debut: tranches[0].debut,
+    fin: ajouterJours(tranches[tranches.length - 1].fin, -1),
     points,
     total: resumer(activite, avecFinances),
     precedent: resumer(precedente, avecFinances),
