@@ -2,7 +2,7 @@
  * Tableaux de bord (dossier §6.13, maquette « Direction »).
  * - Direction et Médecin chef : activité ET finances (même tableau de bord).
  * Définitions (dossier §6.13) :
- * - Patients vus = patients distincts ayant un passage sur la période ; Passages = nombre de passages.
+ * - Patients vus et passages = prise en charge par un praticien sur la période (heureDebut).
  * - Chiffre d'affaires = total encaissé (paiements) ; panier moyen = CA ÷ patients ayant payé.
  * - Attente moyenne = moyenne de (début de consultation − arrivée).
  * - Nouveaux patients = patients dont le premier passage a lieu sur la période.
@@ -46,11 +46,11 @@ function reculerUneAnnee(jour: string): string {
 // Le Médecin chef voit le même tableau de bord que la Direction, finances comprises (décision du 25/10/2026).
 const finances = (role: Role) => role === Role.DIRECTION || role === Role.MEDECIN_CHEF;
 
-/** Passages (patient + heures) et paiements (montant + patient) entre deux instants. */
+/** Prises en charge (patient + heures) et paiements (montant + patient) entre deux instants. */
 async function lireActivite(debut: Date, fin: Date, avecFinances: boolean) {
   const [passages, paiements] = await Promise.all([
     prisma.passage.findMany({
-      where: { heureArrivee: { gte: debut, lt: fin } },
+      where: { heureDebut: { gte: debut, lt: fin } },
       select: { patientId: true, heureArrivee: true, heureDebut: true },
     }),
     avecFinances
@@ -264,7 +264,9 @@ export async function obtenirEvolution(periode: Periode, role: Role) {
     const a = debutDuJour(tranche.debut).getTime();
     const b = debutDuJour(tranche.fin).getTime();
     const dans = (date: Date) => date.getTime() >= a && date.getTime() < b;
-    const patients = new Set(activite.passages.filter((p) => dans(p.heureArrivee)).map((p) => p.patientId)).size;
+    const patients = new Set(
+      activite.passages.filter((p) => p.heureDebut !== null && dans(p.heureDebut)).map((p) => p.patientId),
+    ).size;
     const revenus = avecFinances
       ? activite.paiements.filter((p) => dans(p.date)).reduce((somme, p) => somme + p.montant, 0)
       : undefined;
