@@ -3,6 +3,7 @@ import { Prisma, TypeMouvement } from "../generated/prisma/client.js";
 import { TAILLE_PAGE } from "../config/constants.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { estPerime, observationInventaire } from "../utils/peremption.js";
+import { compterProduitsDisponibles } from "../utils/produits.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 
@@ -143,8 +144,8 @@ export async function listerMedicaments() {
   const valeurDeVente = (liste: typeof actifs) =>
     liste.reduce((somme, medicament) => somme + medicament.stock * medicament.prixVente, 0);
   const indicateurs = {
-    // Produits réellement disponibles : au moins une unité en stock et pas encore périmés.
-    produits: vendables.filter((medicament) => medicament.stock > 0).length,
+    // Produits disponibles : en stock et non périmés, un produit compté une fois même s'il a plusieurs prix.
+    produits: compterProduitsDisponibles(vendables.map((medicament) => ({ ...medicament, categorieId: medicament.categorie.id }))),
     enRupture: vendables.filter((medicament) => medicament.etat === "RUPTURE").length,
     valeurAchat: actifs.reduce((somme, medicament) => somme + medicament.stock * medicament.prixAchat, 0),
     valeurVente: valeurDeVente(vendables),
