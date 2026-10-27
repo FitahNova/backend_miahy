@@ -4,6 +4,7 @@ import { Role } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { normaliserTelephone, MESSAGE_TELEPHONE } from "../utils/telephone.js";
+import { ageEnAnnees, determinerProgrammeParAgeSexe } from "../utils/programmes.js";
 import { champsModifies } from "../utils/audit.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
@@ -57,6 +58,19 @@ async function verifierProgrammeExistant(programmeId: number | null | undefined)
   if (!programme) {
     throw new ErreurHttp(400, "PROGRAMME_INCONNU");
   }
+}
+
+/**
+ * Programme d'un nouveau patient quand aucun n'est choisi : il est déduit de l'âge
+ * et du sexe (Ankizy, Tanora, Vehivavy, Lehilahy, Zokiolona).
+ */
+async function programmeIdAutomatique(dateNaissance: Date | string, sexe: "H" | "F"): Promise<number | null> {
+  const nom = determinerProgrammeParAgeSexe(ageEnAnnees(new Date(dateNaissance)), sexe);
+  const programme = await prisma.programme.findFirst({
+    where: { nom: { equals: nom, mode: "insensitive" }, actif: true },
+    select: { id: true },
+  });
+  return programme?.id ?? null;
 }
 
 // Numéro optionnel : vide = null, valide = +261XXXXXXXXX, invalide = refus avant toute écriture.
@@ -188,7 +202,10 @@ async function chercherDoublon(nom: string, telephone: string | null) {
 export async function creerNouveauPatient(donnees: DonneesCreationPatient, auteurId: number, confirmerDoublon = false) {
   // Validation du téléphone avant toute écriture.
   const telephone = telephoneCanonique(donnees.telephone);
-  await verifierProgrammeExistant(donnees.programmeId);
+  // Sans programme choisi, le patient est rattaché au programme de son âge et de son sexe :
+  // il apparaît ainsi tout de suite dans le programme, sans saisie supplémentaire.
+  const programmeId = donnees.programmeId ?? (await programmeIdAutomatique(donnees.dateNaissance, donnees.sexe));
+  await verifierProgrammeExistant(programmeId);
 
   if (!confirmerDoublon) {
     const doublon = await chercherDoublon(donnees.nom, telephone);
@@ -200,7 +217,7 @@ export async function creerNouveauPatient(donnees: DonneesCreationPatient, auteu
     try {
       return await prisma.$transaction(async (tx) => {
         const patient = await tx.patient.create({
-          data: { ...donnees, telephone, numeroDossier },
+          data: { ...donnees, programmeId, telephone, numeroDossier },
           include: { programme: true },
         });
         await enregistrerAudit(tx, { utilisateurId: auteurId, action: "PATIENT_CREE", entite: "patient", entiteId: patient.id });
