@@ -45,12 +45,14 @@ test_unit:
   stage: test
   script:
     - npm ci || npm ci || npm ci
+    - node_modules/.bin/prisma generate --config prisma7.config.ts
     - npm run test:unit
 
 test_integration:
   stage: test
   script:
     - npm ci || npm ci || npm ci
+    - node_modules/.bin/prisma generate --config prisma7.config.ts
     - npm run test:integration
 
 secret_detection:
