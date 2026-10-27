@@ -110,7 +110,7 @@ function margePourcent(prixAchat: number, prixVente: number): number | null {
 
 // R069 : avertissement non bloquant.
 function avertissementPrix(prixAchat: number, prixVente: number): string | null {
-  return prixVente < prixAchat ? "Le prix de vente est inférieur au prix d'achat" : null;
+  return prixVente < prixAchat ? "Attention, la marge est négative." : null;
 }
 
 async function lireMedicamentsAvecStock() {
