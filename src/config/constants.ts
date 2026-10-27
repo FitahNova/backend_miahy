@@ -26,7 +26,7 @@ export const JOURS_ALERTE_PEREMPTION = 90;           // « Proche de péremption
 export const DUREE_CRENEAU_RENDEZ_VOUS_MINUTES = 30;
 
 // Pagination : même taille de page pour toutes les listes de l'application.
-export const TAILLE_PAGE = 15;
+export const TAILLE_PAGE = 10;
 export const TAILLE_PAGE_MAXIMALE = 100;
 
 // Numérotation

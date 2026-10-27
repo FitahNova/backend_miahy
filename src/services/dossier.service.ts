@@ -135,7 +135,7 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
     prisma.journalAudit.findMany({
       where: { entite: "patient", entiteId: patientId, action: "PATIENT_MODIFIE" },
       orderBy: { date: "desc" },
-      // Toutes les modifications : le dossier les affiche 15 par page.
+      // Toutes les modifications : le dossier les affiche 10 par page.
       select: { date: true, detail: true, utilisateur: { select: { nom: true } } },
     }),
   ]);

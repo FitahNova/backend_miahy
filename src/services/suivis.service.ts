@@ -107,7 +107,7 @@ function filtreListe(liste: ListeSuivi, aujourdhui: string): Prisma.SuiviWhereIn
 }
 
 /**
- * Une liste, page par page (15 par page) : à contacter, en retard, perdus de vue (échéance la plus
+ * Une liste, page par page (10 par page) : à contacter, en retard, perdus de vue (échéance la plus
  * ancienne d'abord), ou historique des tentatives de contact (la plus récente d'abord).
  */
 export async function listerSuivis(

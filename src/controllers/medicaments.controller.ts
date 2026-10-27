@@ -95,7 +95,7 @@ export async function obtenirMedicaments(_requete: Request, reponse: Response) {
   reponse.json(await listerMedicaments());
 }
 
-// Pagination commune : ?page= (1 par défaut), ?taille= (15 par défaut, 100 au plus).
+// Pagination commune : ?page= (1 par défaut), ?taille= (10 par défaut, 100 au plus).
 const schemaPage = z.object({
   page: z.coerce.number().int().min(1).default(1),
   taille: z.coerce.number().int().min(1).max(TAILLE_PAGE_MAXIMALE).default(TAILLE_PAGE),

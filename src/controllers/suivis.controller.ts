@@ -53,7 +53,7 @@ function lireUtilisateur(requete: Request) {
 /** GET /api/suivis?liste=a-contacter|en-retard|perdus-de-vue|historique */
 export async function lister(requete: Request, reponse: Response) {
   const { liste, page, taille } = schemaListe.parse(requete.query);
-  // { suivis, total, page, taille } : 15 par page.
+  // { suivis, total, page, taille } : 10 par page.
   reponse.json(await listerSuivis(liste, lireUtilisateur(requete), page, taille));
 }
 
