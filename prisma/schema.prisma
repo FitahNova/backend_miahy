@@ -153,12 +153,10 @@ model Patient {
   allergies        String?    @db.Text
   programmeId      Int?       @map("programme_id")
   programme        Programme? @relation(fields: [programmeId], references: [id])
-  contactConfiance String?    @map("contact_confiance") @db.VarChar(255)
   financement      String     @default("Personnel") @db.VarChar(30)
   // Fiche clinique (maquette) : maladies et traitements en texte libre, contact autorisé (Appel, SMS…).
   maladies         String?    @db.Text
   traitements      String?    @db.Text
-  contactAutorise  String?    @map("contact_autorise") @db.VarChar(50)
   // Dossier sensible : données cliniques réservées aux soignants.
   sensible         Boolean    @default(false)
   actif            Boolean    @default(true)

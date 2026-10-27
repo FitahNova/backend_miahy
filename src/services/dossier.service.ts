@@ -308,8 +308,6 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
       dateNaissance: patient.dateNaissance,
       telephone: visibles ? patient.telephone : null,
       adresse: visibles ? patient.adresse : null,
-      contactConfiance: visibles ? patient.contactConfiance : null,
-      contactAutorise: visibles ? patient.contactAutorise : null,
       allergies: clinique ? patient.allergies : null,
       maladies: clinique ? patient.maladies : null,
       traitements: clinique ? patient.traitements : null,
