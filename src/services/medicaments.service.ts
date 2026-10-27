@@ -143,7 +143,8 @@ export async function listerMedicaments() {
   const valeurDeVente = (liste: typeof actifs) =>
     liste.reduce((somme, medicament) => somme + medicament.stock * medicament.prixVente, 0);
   const indicateurs = {
-    produits: actifs.length,
+    // Produits réellement disponibles : au moins une unité en stock et pas encore périmés.
+    produits: vendables.filter((medicament) => medicament.stock > 0).length,
     enRupture: vendables.filter((medicament) => medicament.etat === "RUPTURE").length,
     valeurAchat: actifs.reduce((somme, medicament) => somme + medicament.stock * medicament.prixAchat, 0),
     valeurVente: valeurDeVente(vendables),
