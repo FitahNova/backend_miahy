@@ -33,12 +33,15 @@ function lireSecretJwt(): string {
 }
 
 // Utilisé par la connexion pour créer le jeton du cookie.
+// Jetons d'accès signés et vérifiés uniquement en HMAC-SHA256.
+const ALGORITHME_JETON = "HS256" as const;
+
 // La version de session est incluse : si elle change en base, le jeton n'est plus valable.
 export function signerJeton(donnees: DonneesJeton): string {
   return jwt.sign(
     { id: donnees.id, role: donnees.role, version: donnees.versionSession },
     lireSecretJwt(),
-    { expiresIn: `${DUREE_JETON_ACCES_MINUTES}m` },
+    { expiresIn: `${DUREE_JETON_ACCES_MINUTES}m`, algorithm: ALGORITHME_JETON },
   );
 }
 
@@ -52,7 +55,8 @@ export async function exigerConnexion(requete: Request, reponse: Response, suiva
 
   let contenu: jwt.JwtPayload;
   try {
-    contenu = jwt.verify(jeton, lireSecretJwt()) as jwt.JwtPayload;
+    // Algorithme imposé : un jeton signé autrement (ou « none ») est refusé.
+    contenu = jwt.verify(jeton, lireSecretJwt(), { algorithms: [ALGORITHME_JETON] }) as jwt.JwtPayload;
   } catch {
     reponse.status(401).json({ code: "SESSION_EXPIREE" });
     return;
