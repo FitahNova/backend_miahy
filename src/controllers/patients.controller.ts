@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
+import { Role } from "../generated/prisma/client.js";
 import {
   creerNouveauPatient,
   TAILLE_PAGE_PATIENTS_MAXIMALE,
@@ -54,6 +55,8 @@ const lireRole = (requete: Request) => lireUtilisateur(requete).role;
 // Les coordonnées sont masquées selon le rôle (R024) : le service reçoit le rôle de l'appelant.
 export async function listerPatients(requete: Request, reponse: Response) {
   const { q, complet, ...filtres } = schemaRecherche.parse(requete.query);
+  // Liste complète = export PDF de la liste des patients : réservé à la Direction.
+  if (complet === "1" && lireRole(requete) !== Role.DIRECTION) throw new ErreurHttp(403, "EXPORT_RESERVE_DIRECTION");
   // { patients, total, page, taille } : la liste affiche « page X sur Y ».
   reponse.json(await listerPatientsParRecherche(lireRole(requete), q, { ...filtres, complet: complet === "1" }));
 }
