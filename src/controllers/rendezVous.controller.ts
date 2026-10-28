@@ -31,14 +31,14 @@ const schemaRendezVous = z
   })
   .strict();
 
-// Annulation : on note aussi comment le patient a été prévenu (appel, SMS, WhatsApp…) et le résultat.
+// Annulation : on note aussi comment le patient a été prévenu (appel, SMS, WhatsApp). Le résultat est facultatif.
 const schemaCloture = z
   .object({
     statut: z.enum(["ABSENT", "ANNULE"]),
     contact: z
       .object({
         canal: z.enum(CanalContact),
-        resultat: z.enum(ResultatContact),
+        resultat: z.enum(ResultatContact).default(ResultatContact.AUTRE),
         note: z.string().trim().max(200).nullish(),
       })
       .strict()
