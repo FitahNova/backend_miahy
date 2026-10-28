@@ -8,6 +8,7 @@ import { verifierMotifGrossesse } from "../utils/motifs.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { creerFacturePourPassage } from "./facturation.service.js";
 import { cloturerSuivisAuRetour } from "./suivis.service.js";
+import { programmeIdAutomatique } from "./patients.service.js";
 import type { ActeFacture } from "./facturation.service.js";
 
 const MILLISECONDES_PAR_MINUTE = 60 * 1000;
@@ -160,7 +161,7 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
   }
   const patient = await transaction.patient.findUniqueOrThrow({
     where: { id: donnees.patientId },
-    select: { sexe: true, dateNaissance: true },
+    select: { sexe: true, dateNaissance: true, programmeId: true },
   });
   verifierMotifGrossesse(donnees.motif, patient);
 
@@ -213,6 +214,11 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
   }
   // Le patient est revenu : ses suivis échus ou proches sont clôturés (R128).
   await cloturerSuivisAuRetour(transaction, donnees.patientId);
+  // Il a pu changer de tranche d'âge depuis sa dernière venue (Ankizy → Tanora…) : son programme suit.
+  const programmeId = await programmeIdAutomatique(patient.dateNaissance, patient.sexe, transaction);
+  if (programmeId !== patient.programmeId) {
+    await transaction.patient.update({ where: { id: donnees.patientId }, data: { programmeId } });
+  }
   return passage;
 }
 

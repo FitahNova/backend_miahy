@@ -21,7 +21,7 @@ const champsPatient = {
   telephone: z.string().trim().max(20).nullish(),
   adresse: z.string().trim().max(255).nullish(),
   allergies: z.string().trim().nullish(),
-  programmeId: z.number().int().positive().nullish(),
+  // Pas de programme saisi : le serveur le déduit toujours de l'âge et du sexe (un programmeId envoyé est ignoré).
   financement: z.string().trim().min(1).max(30).optional(),
   maladies: z.string().trim().max(2000).nullish(),
   traitements: z.string().trim().max(2000).nullish(),

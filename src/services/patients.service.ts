@@ -44,29 +44,25 @@ function filtreTranche(tranche: TrancheAge): Prisma.PatientWhereInput {
 const NOMBRE_MINIMAL_CHIFFRES_TELEPHONE = 3;
 
 // Le téléphone est déjà normalisé par ce service : on accepte la saisie brute, et on la transforme ici.
-type DonneesCreationPatient = Omit<Prisma.PatientUncheckedCreateInput, "numeroDossier" | "telephone"> & {
+type DonneesCreationPatient = Omit<Prisma.PatientUncheckedCreateInput, "numeroDossier" | "telephone" | "programmeId"> & {
   telephone?: string | null;
 };
 
-type DonneesModificationPatient = Omit<Prisma.PatientUncheckedUpdateInput, "telephone"> & {
+type DonneesModificationPatient = Omit<Prisma.PatientUncheckedUpdateInput, "telephone" | "programmeId"> & {
   telephone?: string | null;
 };
-
-async function verifierProgrammeExistant(programmeId: number | null | undefined) {
-  if (programmeId == null) return;
-  const programme = await prisma.programme.findUnique({ where: { id: programmeId } });
-  if (!programme) {
-    throw new ErreurHttp(400, "PROGRAMME_INCONNU");
-  }
-}
 
 /**
- * Programme d'un nouveau patient quand aucun n'est choisi : il est déduit de l'âge
- * et du sexe (Ankizy, Tanora, Vehivavy, Lehilahy, Zokiolona).
+ * Programme d'un patient : toujours déduit de l'âge et du sexe (Ankizy, Tanora, Vehivavy, Lehilahy, Zokiolona),
+ * jamais choisi à la main. Recalculé à la création, à la modification et à chaque arrivée (le patient vieillit).
  */
-async function programmeIdAutomatique(dateNaissance: Date | string, sexe: "H" | "F"): Promise<number | null> {
+export async function programmeIdAutomatique(
+  dateNaissance: Date | string,
+  sexe: "H" | "F",
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<number | null> {
   const nom = determinerProgrammeParAgeSexe(ageEnAnnees(new Date(dateNaissance)), sexe);
-  const programme = await prisma.programme.findFirst({
+  const programme = await client.programme.findFirst({
     where: { nom: { equals: nom, mode: "insensitive" }, actif: true },
     select: { id: true },
   });
@@ -202,10 +198,8 @@ async function chercherDoublon(nom: string, telephone: string | null) {
 export async function creerNouveauPatient(donnees: DonneesCreationPatient, auteurId: number, confirmerDoublon = false) {
   // Validation du téléphone avant toute écriture.
   const telephone = telephoneCanonique(donnees.telephone);
-  // Sans programme choisi, le patient est rattaché au programme de son âge et de son sexe :
-  // il apparaît ainsi tout de suite dans le programme, sans saisie supplémentaire.
-  const programmeId = donnees.programmeId ?? (await programmeIdAutomatique(donnees.dateNaissance, donnees.sexe));
-  await verifierProgrammeExistant(programmeId);
+  // Le patient est rattaché au programme de son âge et de son sexe : il y apparaît tout de suite.
+  const programmeId = await programmeIdAutomatique(donnees.dateNaissance, donnees.sexe);
 
   if (!confirmerDoublon) {
     const doublon = await chercherDoublon(donnees.nom, telephone);
@@ -234,8 +228,12 @@ export async function creerNouveauPatient(donnees: DonneesCreationPatient, auteu
 }
 
 export async function modifierPatientExistant(identifiant: number, donnees: DonneesModificationPatient, auteurId: number) {
-  await lirePatient(identifiant);
-  await verifierProgrammeExistant(donnees.programmeId as number | null | undefined);
+  const actuel = await lirePatient(identifiant);
+  // Date de naissance ou sexe corrigés (ou simple passage du temps) : le programme suit.
+  const programmeId = await programmeIdAutomatique(
+    (donnees.dateNaissance as Date | string | undefined) ?? actuel.dateNaissance,
+    ((donnees.sexe as "H" | "F" | undefined) ?? actuel.sexe) as "H" | "F",
+  );
 
   // Le téléphone n'est modifié que s'il est fourni dans la requête.
   const telephone = donnees.telephone !== undefined ? telephoneCanonique(donnees.telephone) : undefined;
@@ -243,7 +241,7 @@ export async function modifierPatientExistant(identifiant: number, donnees: Donn
   return prisma.$transaction(async (tx) => {
     const patient = await tx.patient.update({
       where: { id: identifiant },
-      data: { ...donnees, telephone },
+      data: { ...donnees, telephone, programmeId },
       include: { programme: true },
     });
     // Données de santé : seuls les noms des champs sont journalisés, jamais les valeurs.
