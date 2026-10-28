@@ -314,8 +314,9 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
       prenom: patient.prenom,
       sexe: patient.sexe,
       dateNaissance: patient.dateNaissance,
+      // R024 : seul le téléphone est masqué aux soignants ; le quartier reste visible (comme dans la liste).
       telephone: visibles ? patient.telephone : null,
-      adresse: visibles ? patient.adresse : null,
+      adresse: patient.adresse,
       allergies: clinique ? patient.allergies : null,
       maladies: clinique ? patient.maladies : null,
       traitements: clinique ? patient.traitements : null,
