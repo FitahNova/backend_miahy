@@ -1,5 +1,6 @@
 import { prisma } from "../config/prisma.js";
-import { StatutRendezVous } from "../generated/prisma/client.js";
+import { StatutRendezVous, type Role } from "../generated/prisma/client.js";
+import { coordonneesVisibles } from "./patients.service.js";
 
 export function listerProgrammesActifs() {
   return prisma.programme.findMany({
@@ -25,7 +26,9 @@ function joursEcoules(date: Date): number {
   return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
 }
 
-export async function obtenirDetailProgramme(nomProgramme: string) {
+export async function obtenirDetailProgramme(nomProgramme: string, role: Role) {
+  // R024 : téléphone du patient pour la Direction et la Secrétaire seulement.
+  const telephoneVisible = coordonneesVisibles(role);
   const programme = await prisma.programme.findFirst({
     where: { actif: true, nom: { equals: nomProgramme, mode: "insensitive" } },
     select: { id: true, nom: true },
@@ -101,7 +104,7 @@ export async function obtenirDetailProgramme(nomProgramme: string) {
       prenom: p.prenom,
       age,
       sexe: p.sexe,
-      telephone: p.telephone,
+      telephone: telephoneVisible ? p.telephone : null,
       aRevoir: enRetard,
       motif: rdvPatient?.motif || null,
       joursRetard: rdvPatient ? joursEcoules(rdvPatient.dateHeure) : null,

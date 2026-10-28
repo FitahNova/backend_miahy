@@ -8,6 +8,7 @@ import {
   obtenirPatientParIdentifiant,
 } from "../services/patients.service.js";
 import { estClinique } from "../services/dossier.service.js";
+import { coordonneesVisibles, masquerCoordonnees } from "../services/patients.service.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { champNom, champPrenom, champsNaissance, naissanceDepuisSaisie, regleNaissance } from "../utils/identite.js";
 import { lireIdentifiant, lireUtilisateur } from "../utils/parametres.js";
@@ -82,10 +83,12 @@ export async function modifierPatient(requete: Request, reponse: Response) {
   if (!estClinique(utilisateur.role) && CHAMPS_CLINIQUES.some((champ) => donnees[champ] !== undefined)) {
     throw new ErreurHttp(403, "CHAMPS_CLINIQUES_INTERDITS");
   }
+  // Un rôle qui ne voit pas le téléphone ne peut pas le changer (ni l'effacer sans le savoir).
+  if (!coordonneesVisibles(utilisateur.role)) delete donnees.telephone;
   const patient = await modifierPatientExistant(
     lireIdentifiant(requete.params.id),
     { ...donnees, dateNaissance },
     utilisateur.id,
   );
-  reponse.json({ patient });
+  reponse.json({ patient: masquerCoordonnees(patient, utilisateur.role) });
 }

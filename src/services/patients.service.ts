@@ -127,9 +127,9 @@ function construireFiltreRecherche(recherche: string | undefined): Prisma.Patien
   };
 }
 
-// R024 : rôles qui ne voient pas téléphone ni adresse.
-// Liste vide depuis le 21/10/2026 : tous les rôles voient les coordonnées (demande du lead).
-const ROLES_SANS_COORDONNEES: Role[] = [];
+// R024 : rôles qui ne voient pas le téléphone du patient.
+// Depuis le 28/10/2026 : seules la Direction et la Secrétaire le voient (les soignants non).
+const ROLES_SANS_COORDONNEES: Role[] = [Role.MEDECIN_CHEF, Role.MEDECIN, Role.SAGE_FEMME];
 
 export function coordonneesVisibles(role: Role): boolean {
   return !ROLES_SANS_COORDONNEES.includes(role);
@@ -139,7 +139,8 @@ export function masquerCoordonnees<
   T extends { telephone: string | null; adresse: string | null },
 >(patient: T, role: Role): T {
   if (coordonneesVisibles(role)) return patient;
-  return { ...patient, telephone: null, adresse: null };
+  // Seul le téléphone est masqué : le quartier reste utile à la prise en charge.
+  return { ...patient, telephone: null };
 }
 
 /**
