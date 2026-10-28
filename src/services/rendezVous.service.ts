@@ -142,75 +142,82 @@ export async function listerRendezVous(filtre: { du: string; au: string }, utili
   });
 }
 
+export interface DonneesRendezVous {
+  patientId: number;
+  praticienId: number;
+  dateHeure: Date;
+  motif: string;
+}
+
 /**
  * Crée un rendez-vous. La date doit être à venir ; le praticien (obligatoire) doit être un soignant actif.
  * @throws 400 DATE_PASSEE, PRATICIEN_INVALIDE ; 404 PATIENT_INTROUVABLE ; 409 PATIENT_DEJA_EN_RENDEZ_VOUS, PRATICIEN_DEJA_RESERVE ;
  *         422 MOTIF_GROSSESSE_INCOMPATIBLE
  */
-export async function creerRendezVous(
-  donnees: { patientId: number; praticienId: number; dateHeure: Date; motif: string },
-  auteur: UtilisateurConnecte,
-) {
+export async function creerRendezVous(donnees: DonneesRendezVous, auteur: UtilisateurConnecte) {
+  return prisma.$transaction((tx) => creerRendezVousDans(tx, donnees, auteur), OPTIONS_TRANSACTION);
+}
+
+/** Même création, dans une transaction déjà ouverte (ex. contact du suivi qui fixe un rendez-vous). */
+export async function creerRendezVousDans(tx: Prisma.TransactionClient, donnees: DonneesRendezVous, auteur: UtilisateurConnecte) {
   if (donnees.dateHeure.getTime() <= Date.now()) throw new ErreurHttp(400, "DATE_PASSEE");
-  return prisma.$transaction(async (tx) => {
-    const patient = await tx.patient.findUnique({
-      where: { id: donnees.patientId },
-      select: { actif: true, sexe: true, dateNaissance: true },
-    });
-    if (!patient?.actif) throw new ErreurHttp(404, "PATIENT_INTROUVABLE");
-    verifierMotifGrossesse(donnees.motif, patient, donnees.dateHeure);
-    await verifierPraticien(tx, donnees.praticienId);
-    // Verrouillage par praticien : deux créations simultanées ne peuvent pas réserver le même créneau.
-    await tx.$queryRaw`SELECT id FROM utilisateur WHERE id = ${donnees.praticienId} FOR UPDATE`;
-    const decalageCreneau = DUREE_CRENEAU_RENDEZ_VOUS_MINUTES * 60 * 1000;
-    const debutCreneau = new Date(donnees.dateHeure.getTime() - decalageCreneau);
-    const finCreneau = new Date(donnees.dateHeure.getTime() + decalageCreneau);
-    const rendezVousPraticien = await tx.rendezVous.findMany({
-      where: {
-        praticienId: donnees.praticienId,
-        statut: StatutRendezVous.PREVU,
-        dateHeure: { gt: debutCreneau, lt: finCreneau },
-      },
-      select: { dateHeure: true },
-    });
-    const conflitPraticien = rendezVousPraticien.find((rdv) => memeCreneau(rdv.dateHeure, donnees.dateHeure));
-    if (conflitPraticien) {
-      throw new ErreurHttp(409, "PRATICIEN_DEJA_RESERVE", { dateHeure: conflitPraticien.dateHeure.toISOString() });
-    }
-    // Un patient ne peut pas être attendu à la même date et à la même heure, même chez un autre praticien.
-    const occupe = (await rendezVousPrevusDuPatient(tx, donnees.patientId, donnees.dateHeure)).find((dateHeure) =>
-      memeCreneau(dateHeure, donnees.dateHeure),
-    );
-    if (occupe) throw new ErreurHttp(409, "PATIENT_DEJA_EN_RENDEZ_VOUS", { dateHeure: occupe.toISOString() });
-    const rdv = await tx.rendezVous.create({
-      data: {
-        patientId: donnees.patientId,
-        praticienId: donnees.praticienId,
-        dateHeure: donnees.dateHeure,
-        motif: donnees.motif,
-        creeParId: auteur.id,
-      },
-      select: { id: true },
-    });
-    await enregistrerAudit(tx, {
-      utilisateurId: auteur.id,
-      action: "RENDEZ_VOUS_CREE",
-      entite: "rendez_vous",
-      entiteId: rdv.id,
-      detail: { patientId: donnees.patientId, dateHeure: donnees.dateHeure.toISOString() },
-    });
-    // Chaque rendez-vous est suivi : « À contacter » 3 jours avant (rappel), clôturé au « Venu »,
-    // en retard s'il est noté Absent, perdu de vue au-delà de 5 jours.
-    await creerSuiviAutomatique(tx, {
+  const patient = await tx.patient.findUnique({
+    where: { id: donnees.patientId },
+    select: { actif: true, sexe: true, dateNaissance: true },
+  });
+  if (!patient?.actif) throw new ErreurHttp(404, "PATIENT_INTROUVABLE");
+  verifierMotifGrossesse(donnees.motif, patient, donnees.dateHeure);
+  await verifierPraticien(tx, donnees.praticienId);
+  // Verrouillage par praticien : deux créations simultanées ne peuvent pas réserver le même créneau.
+  await tx.$queryRaw`SELECT id FROM utilisateur WHERE id = ${donnees.praticienId} FOR UPDATE`;
+  const decalageCreneau = DUREE_CRENEAU_RENDEZ_VOUS_MINUTES * 60 * 1000;
+  const debutCreneau = new Date(donnees.dateHeure.getTime() - decalageCreneau);
+  const finCreneau = new Date(donnees.dateHeure.getTime() + decalageCreneau);
+  const rendezVousPraticien = await tx.rendezVous.findMany({
+    where: {
+      praticienId: donnees.praticienId,
+      statut: StatutRendezVous.PREVU,
+      dateHeure: { gt: debutCreneau, lt: finCreneau },
+    },
+    select: { dateHeure: true },
+  });
+  const conflitPraticien = rendezVousPraticien.find((rdv) => memeCreneau(rdv.dateHeure, donnees.dateHeure));
+  if (conflitPraticien) {
+    throw new ErreurHttp(409, "PRATICIEN_DEJA_RESERVE", { dateHeure: conflitPraticien.dateHeure.toISOString() });
+  }
+  // Un patient ne peut pas être attendu à la même date et à la même heure, même chez un autre praticien.
+  const occupe = (await rendezVousPrevusDuPatient(tx, donnees.patientId, donnees.dateHeure)).find((dateHeure) =>
+    memeCreneau(dateHeure, donnees.dateHeure),
+  );
+  if (occupe) throw new ErreurHttp(409, "PATIENT_DEJA_EN_RENDEZ_VOUS", { dateHeure: occupe.toISOString() });
+  const rdv = await tx.rendezVous.create({
+    data: {
       patientId: donnees.patientId,
+      praticienId: donnees.praticienId,
+      dateHeure: donnees.dateHeure,
       motif: donnees.motif,
-      echeance: jourDuCentre(donnees.dateHeure),
-      origine: OrigineSuivi.RENDEZ_VOUS,
-      rendezVousId: rdv.id,
       creeParId: auteur.id,
-    });
-    return rdv;
-  }, OPTIONS_TRANSACTION);
+    },
+    select: { id: true },
+  });
+  await enregistrerAudit(tx, {
+    utilisateurId: auteur.id,
+    action: "RENDEZ_VOUS_CREE",
+    entite: "rendez_vous",
+    entiteId: rdv.id,
+    detail: { patientId: donnees.patientId, dateHeure: donnees.dateHeure.toISOString() },
+  });
+  // Chaque rendez-vous est suivi : « À contacter » 3 jours avant (rappel), clôturé au « Venu »,
+  // en retard s'il est noté Absent, perdu de vue au-delà de 5 jours.
+  await creerSuiviAutomatique(tx, {
+    patientId: donnees.patientId,
+    motif: donnees.motif,
+    echeance: jourDuCentre(donnees.dateHeure),
+    origine: OrigineSuivi.RENDEZ_VOUS,
+    rendezVousId: rdv.id,
+    creeParId: auteur.id,
+  });
+  return rdv;
 }
 
 /** Rendez-vous de revue créé dans la transaction de signature d'une consultation. */

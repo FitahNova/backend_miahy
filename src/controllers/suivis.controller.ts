@@ -33,13 +33,26 @@ const schemaSuivi = z
   })
   .strict();
 
+// « Rendez-vous fixé » : le rendez-vous pris pendant le contact est obligatoire (et réservé à ce résultat).
 const schemaContact = z
   .object({
     canal: z.enum(CanalContact),
     resultat: z.enum(ResultatContact),
     note: z.string().trim().max(255).nullish(),
+    rendezVous: z
+      .object({
+        praticienId: z.number().int().positive(),
+        dateHeure: z.iso.datetime({ offset: true }),
+        motif: z.string().trim().min(2).max(255),
+      })
+      .strict()
+      .nullish(),
   })
-  .strict();
+  .strict()
+  .refine((contact) => (contact.resultat === ResultatContact.RENDEZ_VOUS_FIXE) === Boolean(contact.rendezVous), {
+    path: ["rendezVous"],
+    message: "Rendez-vous attendu uniquement avec le résultat « Rendez-vous fixé »",
+  });
 
 const schemaCloture = z.object({ note: z.string().trim().max(255).nullish() }).strict();
 const schemaType = z.object({ nom: z.string().trim().min(2).max(50) }).strict();
@@ -77,9 +90,18 @@ export async function creer(requete: Request, reponse: Response) {
 /** POST /api/suivis/:id/contacts : appel ou message noté. */
 export async function contacter(requete: Request, reponse: Response) {
   const id = lireIdentifiant(requete.params.id);
-  const contact = await noterContact(id, schemaContact.parse(requete.body), lireUtilisateur(requete));
-  diffuser(EVENEMENTS.SUIVIS_MODIFIES, { suiviId: id });
-  reponse.status(201).json({ contact });
+  const { rendezVous, ...donnees } = schemaContact.parse(requete.body);
+  const resultat = await noterContact(
+    id,
+    { ...donnees, rendezVous: rendezVous ? { ...rendezVous, dateHeure: new Date(rendezVous.dateHeure) } : null },
+    lireUtilisateur(requete),
+  );
+  if (resultat.rendezVousId) {
+    diffuser([EVENEMENTS.SUIVIS_MODIFIES, EVENEMENTS.RENDEZ_VOUS_MODIFIE], { suiviId: id, rendezVousId: resultat.rendezVousId });
+  } else {
+    diffuser(EVENEMENTS.SUIVIS_MODIFIES, { suiviId: id });
+  }
+  reponse.status(201).json(resultat);
 }
 
 /** POST /api/suivis/:id/cloture */

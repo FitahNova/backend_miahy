@@ -14,6 +14,7 @@ import { bornesListe, classerSuivi, decalerJour, jourDuCentre, joursDeRetard, ty
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { coordonneesVisibles } from "./patients.service.js";
+import { creerRendezVousDans, type DonneesRendezVous } from "./rendezVous.service.js";
 
 export interface UtilisateurConnecte {
   id: number;
@@ -270,27 +271,48 @@ export async function cloturerSuivisAuRetour(tx: Prisma.TransactionClient, patie
 
 /**
  * Note un appel ou un message (R126). Un suivi clôturé ne reçoit plus de contact.
- * @throws 404 SUIVI_INTROUVABLE ; 409 SUIVI_CLOTURE
+ * « Rendez-vous fixé » : le rendez-vous est créé avec le contact et le suivi est clôturé, le tout ensemble ;
+ * le nouveau rendez-vous a son propre suivi (rappel avant la date).
+ * @throws 404 SUIVI_INTROUVABLE ; 409 SUIVI_CLOTURE ; erreurs de création du rendez-vous (créneau pris, date passée…)
  */
 export async function noterContact(
   suiviId: number,
-  donnees: { canal: CanalContact; resultat: ResultatContact; note?: string | null },
+  donnees: {
+    canal: CanalContact;
+    resultat: ResultatContact;
+    note?: string | null;
+    rendezVous?: Omit<DonneesRendezVous, "patientId"> | null;
+  },
   auteur: UtilisateurConnecte,
 ) {
-  const suivi = await prisma.suivi.findUnique({ where: { id: suiviId }, select: { clotureLe: true } });
-  if (!suivi) throw new ErreurHttp(404, "SUIVI_INTROUVABLE");
-  if (suivi.clotureLe) throw new ErreurHttp(409, "SUIVI_CLOTURE");
-  return prisma.contactSuivi.create({
-    data: { suiviId, canal: donnees.canal, resultat: donnees.resultat, note: donnees.note ?? null, auteurId: auteur.id },
-    select: {
-      id: true,
-      date: true,
-      canal: true,
-      resultat: true,
-      note: true,
-      auteur: { select: { prenom: true, nom: true } },
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM suivi WHERE id = ${suiviId} FOR UPDATE`;
+    const suivi = await tx.suivi.findUnique({ where: { id: suiviId }, select: { clotureLe: true, patientId: true } });
+    if (!suivi) throw new ErreurHttp(404, "SUIVI_INTROUVABLE");
+    if (suivi.clotureLe) throw new ErreurHttp(409, "SUIVI_CLOTURE");
+
+    const rendezVous = donnees.rendezVous
+      ? await creerRendezVousDans(tx, { ...donnees.rendezVous, patientId: suivi.patientId }, auteur)
+      : null;
+    const contact = await tx.contactSuivi.create({
+      data: { suiviId, canal: donnees.canal, resultat: donnees.resultat, note: donnees.note ?? null, auteurId: auteur.id },
+      select: {
+        id: true,
+        date: true,
+        canal: true,
+        resultat: true,
+        note: true,
+        auteur: { select: { prenom: true, nom: true } },
+      },
+    });
+    if (rendezVous) {
+      await tx.suivi.update({
+        where: { id: suiviId },
+        data: { clotureLe: new Date(), motifCloture: MotifClotureSuivi.NOUVEAU_RENDEZ_VOUS, clotureParId: auteur.id },
+      });
+    }
+    return { contact, rendezVousId: rendezVous?.id ?? null };
+  }, OPTIONS_TRANSACTION);
 }
 
 /**

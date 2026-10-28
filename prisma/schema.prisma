@@ -680,6 +680,7 @@ enum MotifClotureSuivi {
   RETOUR_PATIENT     @map("retour_patient")
   MANUELLE           @map("manuelle")
   RENDEZ_VOUS_ANNULE @map("rendez_vous_annule")
+  NOUVEAU_RENDEZ_VOUS @map("nouveau_rendez_vous") // patient joint au suivi : un nouveau rendez-vous est pris
 
   @@map("motif_cloture_suivi")
 }
