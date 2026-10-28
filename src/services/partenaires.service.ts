@@ -65,7 +65,7 @@ const SELECTION_PARTENAIRE = {
 async function verifierConvention(donnees: DonneesPartenaire) {
   if (donnees.tauxPriseEnCharge > 0) {
     const objets = Number(Boolean(donnees.serviceCouvertId)) + Number(Boolean(donnees.couvreMedicaments));
-    if (objets !== 1) throw new ErreurHttp(400, "OBJET_COUVERT_REQUIS");
+    if (objets < 1) throw new ErreurHttp(400, "OBJET_COUVERT_REQUIS");
   }
   if (donnees.debut && donnees.fin && donnees.fin < donnees.debut) throw new ErreurHttp(400, "PERIODE_INVALIDE");
 

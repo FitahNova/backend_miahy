@@ -550,7 +550,7 @@ model Partenaire {
   categorieId       Int                  @map("categorie_id")
   categorie         CategoriePartenaire  @relation(fields: [categorieId], references: [id])
   contact           String?              @db.VarChar(255)
-  // Convention : un taux appliqué à UN objet couvert, un service ou les médicaments (maquette).
+  // Convention : un taux appliqué à un ou plusieurs objets couverts (service et/ou médicaments).
   tauxPriseEnCharge Int                  @default(0) @map("taux_prise_en_charge") @db.SmallInt
   serviceCouvertId  Int?                 @map("service_couvert_id")
   serviceCouvert    Service?             @relation(fields: [serviceCouvertId], references: [id])
