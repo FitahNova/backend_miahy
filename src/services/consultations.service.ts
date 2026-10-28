@@ -44,16 +44,6 @@ function verifierAccesAuPassage(passage: { praticienId: number | null }, utilisa
   }
 }
 
-async function lirePassage(passageId: number) {
-  const passage = await prisma.passage.findUnique({
-    where: { id: passageId },
-    select: { id: true, statut: true, praticienId: true },
-  });
-  if (!passage) {
-    throw new ErreurHttp(404, "PASSAGE_INTROUVABLE");
-  }
-  return passage;
-}
 
 /*
  * Les actes réalisés sont conservés dans le champ JSON « brouillon » de la consultation

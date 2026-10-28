@@ -19,14 +19,18 @@ export interface LigneCouvrable {
 
 const jour = (date: Date) => date.toISOString().slice(0, 10);
 
-/** Montant des lignes couvertes : le service de la convention, ou tous les médicaments. */
+/** Montant des lignes couvertes : le service de la convention, ou tous les médicaments (ou les deux). */
 export function montantCouvert(convention: Convention, lignes: readonly LigneCouvrable[]): number {
   return lignes
-    .filter((ligne) =>
-      convention.couvreMedicaments
-        ? ligne.type === "MEDICAMENT"
-        : ligne.type === "ACTE" && ligne.serviceId !== null && ligne.serviceId === convention.serviceCouvertId,
-    )
+    .filter((ligne) => {
+      const couvreMedicament = convention.couvreMedicaments && ligne.type === "MEDICAMENT";
+      const couvreService =
+        convention.serviceCouvertId !== null &&
+        ligne.type === "ACTE" &&
+        ligne.serviceId !== null &&
+        ligne.serviceId === convention.serviceCouvertId;
+      return couvreMedicament || couvreService;
+    })
     .reduce((somme, ligne) => somme + ligne.quantite * ligne.prixUnitaire, 0);
 }
 

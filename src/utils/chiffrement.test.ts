@@ -19,7 +19,7 @@ describe("Chiffrement des clés TOTP", () => {
   it("refuse une autre clé ou une valeur modifiée", () => {
     const valeur = chiffrer("secret", CLE);
     assert.throws(() => dechiffrer(valeur, randomBytes(32).toString("base64")));
-    const [iv, tag, donnees] = valeur.split(".");
+    const [iv, tag] = valeur.split(".");
     const modifiee = [iv, tag, Buffer.from("xxxxxx").toString("base64")].join(".");
     assert.notEqual(modifiee, valeur);
     assert.throws(() => dechiffrer(modifiee, CLE));
