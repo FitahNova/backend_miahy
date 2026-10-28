@@ -5,15 +5,18 @@ import {
   calculerResteDuDuPatient,
   cloturerLaJournee,
   enregistrerNouveauPaiement,
+  listerClotures,
   listerFacturesEnAttenteDePaiement,
   modifierRemiseFacture,
   obtenirRecuFacture,
+  rouvrirLaJournee,
 } from "../services/caisse.service.js";
 import { choisirConvention } from "../services/conventions.service.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
 import { EVENEMENTS } from "../realtime/events.js";
 import { diffuser } from "../realtime/sse.js";
+import { TAILLE_PAGE, TAILLE_PAGE_MAXIMALE } from "../config/constants.js";
 
 // R098 (décision du 13/10/2026) : espèces et Mobile Money ; pas de carte pour l'instant.
 const MODES_PAIEMENT = ["ESPECES", "MOBILE_MONEY"] as const;
@@ -43,6 +46,13 @@ const schemaCloture = z.object({
   })).length(7),
   commentaire: z.string().trim().nullish(),
 });
+
+const schemaPage = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  taille: z.coerce.number().int().min(1).max(TAILLE_PAGE_MAXIMALE).default(TAILLE_PAGE),
+});
+
+const schemaReouverture = z.object({ motif: z.string().trim().min(5).max(255) }).strict();
 
 function lireUtilisateurId(requete: Request): number {
   if (!requete.utilisateur) throw new ErreurHttp(401, "CONNEXION_REQUISE");
@@ -101,4 +111,19 @@ export async function cloturerJournee(requete: Request, reponse: Response) {
   const cloture = await cloturerLaJournee(donnees, lireUtilisateurId(requete));
   diffuser(EVENEMENTS.CAISSE_MODIFIEE, { clotureId: cloture.id });
   reponse.status(201).json({ cloture });
+}
+
+/** GET /api/caisse/clotures (Direction) : historique des clôtures, 10 par page. */
+export async function historiqueClotures(requete: Request, reponse: Response) {
+  const { page, taille } = schemaPage.parse(requete.query);
+  reponse.json(await listerClotures(page, taille));
+}
+
+/** POST /api/caisse/cloture/:jour/reouverture (Direction) : rouvre la caisse du jour, avec un motif. */
+export async function rouvrirJournee(requete: Request, reponse: Response) {
+  const jour = schemaJour.parse(requete.params.jour);
+  const { motif } = schemaReouverture.parse(requete.body);
+  await rouvrirLaJournee(jour, motif, lireUtilisateurId(requete));
+  diffuser(EVENEMENTS.CAISSE_MODIFIEE, { jour });
+  reponse.status(204).end();
 }

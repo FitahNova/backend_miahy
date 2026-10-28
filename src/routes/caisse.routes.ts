@@ -8,9 +8,11 @@ import {
   choisirConventionFacture,
   cloturerJournee,
   enregistrerPaiement,
+  historiqueClotures,
   listerFacturesAEncaisser,
   modifierRemise,
   obtenirRecu,
+  rouvrirJournee,
 } from "../controllers/caisse.controller.js";
 
 const routeur = Router();
@@ -25,5 +27,8 @@ routeur.get("/factures/:factureId/recu", gererAsync(obtenirRecu));
 routeur.get("/patients/:patientId/reste-du", gererAsync(calculerResteDuPatient));
 routeur.get("/cloture/:jour", gererAsync(calculerCloture));
 routeur.post("/cloture", gererAsync(cloturerJournee));
+routeur.get("/clotures", exigerRole(Role.DIRECTION), gererAsync(historiqueClotures));
+// Réouverture après clôture : réservée à la Direction, motif obligatoire, tracée dans le journal.
+routeur.post("/cloture/:jour/reouverture", exigerRole(Role.DIRECTION), gererAsync(rouvrirJournee));
 
 export default routeur;

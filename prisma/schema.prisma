@@ -349,6 +349,8 @@ model ClotureCaisse {
   // Nombre de billets et de pièces comptés : [{ "valeur": 10000, "quantite": 2 }, …].
   detailComptage Json?      @map("detail_comptage")
   commentaire   String?     @db.Text
+  // Heure de la clôture (historique des clôtures de la Direction).
+  creeLe        DateTime    @default(now()) @map("cree_le") @db.Timestamptz(6)
   paiements     Paiement[]
 
   @@map("cloture_caisse")

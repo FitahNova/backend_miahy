@@ -7,6 +7,7 @@ import {
   verifierCoupures,
   type Coupure,
 } from "../utils/comptageCaisse.js";
+import { TAILLE_PAGE } from "../config/constants.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
@@ -350,5 +351,74 @@ export async function cloturerLaJournee(
     });
 
     return cloture;
+  }, OPTIONS_TRANSACTION);
+}
+
+/**
+ * Historique des clôtures (Direction), la plus récente d'abord : date, heure, auteur et comptage.
+ * Seule la clôture du jour peut être rouverte (à toute heure) ; les jours passés restent figés.
+ */
+export async function listerClotures(page = 1, taille = TAILLE_PAGE) {
+  const aujourdhui = lireJourCourant();
+  const [clotures, total] = await prisma.$transaction([
+    prisma.clotureCaisse.findMany({
+      orderBy: [{ jour: "desc" }, { id: "desc" }],
+      skip: (page - 1) * taille,
+      take: taille,
+      select: {
+        id: true,
+        jour: true,
+        creeLe: true,
+        fondDeCaisse: true,
+        totalAttendu: true,
+        totalCompte: true,
+        ecart: true,
+        utilisateur: { select: { prenom: true, nom: true } },
+      },
+    }),
+    prisma.clotureCaisse.count(),
+  ]);
+  return {
+    clotures: clotures.map((cloture) => {
+      const jour = cloture.jour.toISOString().slice(0, 10);
+      return { ...cloture, jour, reouvrable: jour === aujourdhui };
+    }),
+    total,
+    page,
+    taille,
+  };
+}
+
+/**
+ * Réouverture de la caisse du jour par la Direction (oubli d'un paiement, erreur de comptage…), avec un motif.
+ * La clôture est retirée et les paiements redeviennent libres : ils seront figés par la prochaine clôture.
+ * Le journal garde le comptage retiré, qui l'avait fait, et le motif.
+ * @throws 400 REOUVERTURE_JOUR_COURANT ; 404 CLOTURE_INTROUVABLE
+ */
+export async function rouvrirLaJournee(jour: string, motif: string, utilisateurId: number) {
+  if (jour !== lireJourCourant()) throw new ErreurHttp(400, "REOUVERTURE_JOUR_COURANT");
+  return prisma.$transaction(async (tx) => {
+    const cloture = await tx.clotureCaisse.findUnique({ where: { jour: jourEnDate(jour) } });
+    if (!cloture) throw new ErreurHttp(404, "CLOTURE_INTROUVABLE");
+
+    const { count } = await tx.paiement.updateMany({ where: { clotureId: cloture.id }, data: { clotureId: null } });
+    await tx.clotureCaisse.delete({ where: { id: cloture.id } });
+
+    await enregistrerAudit(tx, {
+      utilisateurId,
+      action: "REOUVERTURE_CAISSE",
+      entite: "cloture_caisse",
+      entiteId: cloture.id,
+      detail: {
+        jour,
+        motif,
+        clotureePar: cloture.utilisateurId,
+        fondDeCaisse: cloture.fondDeCaisse,
+        totalAttendu: cloture.totalAttendu,
+        totalCompte: cloture.totalCompte,
+        ecart: cloture.ecart,
+        paiements: count,
+      },
+    });
   }, OPTIONS_TRANSACTION);
 }
