@@ -13,6 +13,7 @@ import {
   recalculerStatutsDuPassage,
 } from "./facturation.service.js";
 import { calculerStocks, verrouillerMedicaments } from "./medicaments.service.js";
+import { conventionsPossibles } from "./conventions.service.js";
 
 /** Passages servis au comptoir : à préparer, à encaisser, ou partiellement payés. */
 const STATUTS_PASSAGE_AU_COMPTOIR: StatutPassage[] = [StatutPassage.PHARMACIE, StatutPassage.CAISSE, StatutPassage.PARTIEL];
@@ -107,6 +108,15 @@ export async function listerPassagesAuComptoir() {
   ];
   const stocks = await calculerStocks(prisma, medicamentIds);
 
+  // Convention pas encore figée : elle le sera au premier paiement et baissera la part patient.
+  // Le comptoir affiche et encaisse donc déjà ce montant (sinon : « le montant dépasse le reste dû »).
+  // Plusieurs conventions possibles : rien n'est anticipé, la caisse demandera de choisir.
+  const conventions = new Map<number, Awaited<ReturnType<typeof conventionsPossibles>>[number]>();
+  for (const facture of passages.flatMap((passage) => passage.factures)) {
+    const possibles = await conventionsPossibles(facture.id);
+    if (possibles.length === 1) conventions.set(facture.id, possibles[0]!);
+  }
+
   return passages.map(({ ordonnance, factures, ...passage }) => ({
     ...passage,
     // Seulement ce qui reste à délivrer : la secrétaire ne lit pas l'ordonnance complète.
@@ -122,12 +132,18 @@ export async function listerPassagesAuComptoir() {
         dejaDelivre: ligne.quantiteDelivree,
         stockDisponible: stocks.get(medicament.id) ?? 0,
       })),
-    factures: factures.map((facture) => ({
-      ...facture,
-      netAPayer: calculerNetAPayer(facture),
-      resteDu: calculerResteDu(facture),
-      lignes: facture.lignes.map((ligne) => ({ ...ligne, retirable: estRetirable(ligne, facture) })),
-    })),
+    factures: factures.map((facture) => {
+      const convention = conventions.get(facture.id);
+      const montants = convention ? { ...facture, partPatient: convention.partPatient } : facture;
+      return {
+        ...facture,
+        partPatient: montants.partPatient,
+        netAPayer: calculerNetAPayer(montants),
+        resteDu: calculerResteDu(montants),
+        convention: convention ? { nom: convention.nom, partPartenaire: convention.partPartenaire } : null,
+        lignes: facture.lignes.map((ligne) => ({ ...ligne, retirable: estRetirable(ligne, facture) })),
+      };
+    }),
   }));
 }
 
