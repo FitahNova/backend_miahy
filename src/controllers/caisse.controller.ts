@@ -11,6 +11,7 @@ import {
   obtenirRecuFacture,
   rouvrirLaJournee,
 } from "../services/caisse.service.js";
+import { COUPURES } from "../utils/comptageCaisse.js";
 import { choisirConvention } from "../services/conventions.service.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
@@ -43,7 +44,7 @@ const schemaCloture = z.object({
   coupures: z.array(z.object({
     valeur: z.number().int().positive(),
     quantite: z.number().int().nonnegative(),
-  })).length(7),
+  })).length(COUPURES.length),
   commentaire: z.string().trim().nullish(),
 });
 

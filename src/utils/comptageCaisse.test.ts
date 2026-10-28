@@ -19,7 +19,7 @@ describe("Comptage de caisse", () => {
 
   it("refuse une coupure inconnue ou un doublon", () => {
     const inconnue: Coupure[] = vide.map((coupure) => ({ valeur: coupure.valeur, quantite: coupure.quantite }));
-    inconnue[0] = { valeur: 20_000, quantite: 0 };
+    inconnue[0] = { valeur: 50_000, quantite: 0 };
     const doublon: Coupure[] = vide.map((coupure, index) =>
       index === vide.length - 1 ? { valeur: 10_000, quantite: 1 } : { valeur: coupure.valeur, quantite: coupure.quantite },
     );
@@ -29,6 +29,7 @@ describe("Comptage de caisse", () => {
 
   it("calcule le tiroir : fond + espèces, puis l'écart avec le compté", () => {
     const compte = totalDuComptage([
+      { valeur: 20_000, quantite: 0 },
       { valeur: 10_000, quantite: 3 },
       { valeur: 5_000, quantite: 1 },
       { valeur: 2_000, quantite: 0 },

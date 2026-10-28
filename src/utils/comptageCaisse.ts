@@ -1,7 +1,7 @@
 import { ErreurHttp } from "./errors.js";
 
 /** Billets et pièces du comptage, du plus fort au plus faible. Le serveur recalcule le total. */
-export const COUPURES = [10_000, 5_000, 2_000, 1_000, 500, 200, 100] as const;
+export const COUPURES = [20_000, 10_000, 5_000, 2_000, 1_000, 500, 200, 100] as const;
 
 export type Coupure = { valeur: number; quantite: number };
 
