@@ -208,6 +208,7 @@ model Consultation {
   brouillon       Json?
   suiviDelaiJours Int?      @map("suivi_delai_jours") @db.SmallInt
   suiviMotif      String?   @map("suivi_motif") @db.VarChar(50)
+  suiviHeure      String?   @map("suivi_heure") @db.VarChar(5) // « HH:MM » du rendez-vous de revue (09:00 si vide)
   signeeLe        DateTime? @map("signee_le") @db.Timestamptz(6)
   // Rendez-vous de revue créés à la signature (« Ce patient doit-il être revu ? »).
   rendezVousRevue RendezVous[]

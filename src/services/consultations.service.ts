@@ -32,6 +32,7 @@ export interface DonneesConsultation {
   note?: string | null;
   suiviDelaiJours?: number | null;
   suiviMotif?: string | null;
+  suiviHeure?: string | null;
 }
 
 // Un Médecin chef voit toutes les consultations.
@@ -257,6 +258,7 @@ export async function signerEtTerminerConsultation(passageId: number, utilisateu
         praticienId: utilisateur.id,
         consultationId: existante.id,
         delaiJours: existante.suiviDelaiJours,
+        heure: existante.suiviHeure,
         motif,
       });
       await creerSuiviAutomatique(transaction, {

@@ -25,6 +25,7 @@ const schemaConsultation = z
     note: z.string().trim().max(5000).nullish(),
     suiviDelaiJours: z.number().int().positive().max(365).nullish(),
     suiviMotif: z.string().trim().max(50).nullish(),
+    suiviHeure: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Format attendu : 09:30").nullish(),
   })
   .strict();
 

@@ -42,10 +42,10 @@ function bornesDuJour(jour: string) {
   return { debut, fin: new Date(debut.getTime() + MS_PAR_JOUR) };
 }
 
-/** Date et heure d'une revue : aujourd'hui + délai, à l'heure par défaut, dans le fuseau du centre. */
-export function dateHeureRevue(delaiJours: number): Date {
+/** Date et heure d'une revue : aujourd'hui + délai, à l'heure choisie par le praticien (sinon par défaut), fuseau du centre. */
+export function dateHeureRevue(delaiJours: number, heure?: string | null): Date {
   const jour = jourDuCentre(new Date(Date.now() + delaiJours * MS_PAR_JOUR));
-  return new Date(`${jour}T${HEURE_REVUE_PAR_DEFAUT}:00${DECALAGE_FUSEAU}`);
+  return new Date(`${jour}T${heure ?? HEURE_REVUE_PAR_DEFAUT}:00${DECALAGE_FUSEAU}`);
 }
 
 /** Heures des rendez-vous encore prévus du patient, le même jour (± 1 jour, pour le fuseau). */
@@ -223,10 +223,10 @@ export async function creerRendezVousDans(tx: Prisma.TransactionClient, donnees:
 /** Rendez-vous de revue créé dans la transaction de signature d'une consultation. */
 export async function creerRendezVousDeRevue(
   tx: Prisma.TransactionClient,
-  donnees: { patientId: number; praticienId: number; consultationId: number; delaiJours: number; motif: string },
+  donnees: { patientId: number; praticienId: number; consultationId: number; delaiJours: number; heure?: string | null; motif: string },
 ) {
-  // Revue à l'heure par défaut, décalée au premier créneau libre si le patient a déjà un rendez-vous.
-  const souhaite = dateHeureRevue(donnees.delaiJours);
+  // Revue à l'heure choisie (09:00 par défaut), décalée au premier créneau libre si le patient a déjà un rendez-vous.
+  const souhaite = dateHeureRevue(donnees.delaiJours, donnees.heure);
   const dateHeure = premierCreneauLibre(souhaite, await rendezVousPrevusDuPatient(tx, donnees.patientId, souhaite));
   return tx.rendezVous.create({
     data: {
