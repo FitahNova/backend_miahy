@@ -1,9 +1,12 @@
 /*
  * Test sur une vraie base : le journal refuse toute modification et toute suppression.
- * Ne tourne que si DATABASE_URL_TEST pointe vers une base de TEST migrée (jamais la base de production :
- * l'entrée créée ici ne peut plus être supprimée).
+ * Ne tourne que si DATABASE_URL_TEST pointe vers une base de TEST (jamais la base de production :
+ * l'entrée créée ici ne peut plus être supprimée). Les migrations y sont appliquées avant les tests,
+ * pour qu'une base vide (celle de la CI) ait ses tables.
  */
-import { after, describe, it } from "node:test";
+import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
+import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/prisma/client.js";
@@ -12,6 +15,16 @@ const url = process.env.DATABASE_URL_TEST;
 
 describe("Journal d'audit : inaltérable en base", { skip: !url && "DATABASE_URL_TEST absent" }, () => {
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) });
+
+  // Crée les tables sur la base de TEST seulement : DATABASE_URL est remplacée par DATABASE_URL_TEST
+  // pour ce seul processus (dotenv ne l'écrase pas).
+  before(() => {
+    const cliPrisma = createRequire(import.meta.url).resolve("prisma/build/index.js");
+    execFileSync(process.execPath, [cliPrisma, "migrate", "deploy", "--config", "prisma7.config.ts"], {
+      env: { ...process.env, DATABASE_URL: url },
+      stdio: "inherit",
+    });
+  });
   after(() => prisma.$disconnect());
 
   it("enregistre une entrée et fige le rôle de l'auteur", async () => {

@@ -13,7 +13,7 @@
     "migrer": "prisma migrate deploy --config prisma7.config.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "test:unit": "tsx --test \"src/**/*.test.ts\"",
-    "test:integration": "tsx --test \"src/**/*.test.ts\"",
+    "test:integration": "tsx --test \"src/**/*.integration.test.ts\"",
     "lint": "eslint .",
     "typecheck": "prisma generate --config prisma7.config.ts && tsc --noEmit"
   },

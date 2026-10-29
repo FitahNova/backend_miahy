@@ -13,7 +13,7 @@ import {
 const vide = COUPURES.map((valeur) => ({ valeur, quantite: 0 }));
 
 describe("Comptage de caisse", () => {
-  it("accepte les sept coupures et ignore l'ordre", () => {
+  it("accepte toutes les coupures et ignore l'ordre", () => {
     assert.doesNotThrow(() => verifierCoupures([...vide].reverse()));
   });
 
