@@ -44,7 +44,8 @@ const schemaRecherche = z.object({
   q: z.string().optional(),
   programmeId: z.coerce.number().int().positive().optional(),
   sexe: z.enum(["H", "F"]).optional(),
-  tranche: z.enum(["enfant", "adulte", "senior"]).optional(),
+  // Âge exact saisi dans le filtre de la liste.
+  age: z.coerce.number().int().min(0).max(130).optional(),
   complet: z.literal("1").optional(),
   page: z.coerce.number().int().min(1).optional(),
   taille: z.coerce.number().int().min(1).max(TAILLE_PAGE_PATIENTS_MAXIMALE).optional(),

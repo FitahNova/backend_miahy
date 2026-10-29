@@ -14,15 +14,13 @@ const NOMBRE_ESSAIS_CREATION = 3;
 export const TAILLE_PAGE_PATIENTS = TAILLE_PAGE;
 export const TAILLE_PAGE_PATIENTS_MAXIMALE = 100;
 const LIMITE_LISTE_COMPLETE = 2000; // liste filtrée à imprimer
-const AGE_FIN_ENFANCE = 15;
-const AGE_SENIOR = 60;
 
-export type TrancheAge = "enfant" | "adulte" | "senior";
 
 export interface FiltresPatients {
   programmeId?: number;
   sexe?: "H" | "F";
-  tranche?: TrancheAge;
+  /** Âge exact en années révolues (filtre « Âge » de la liste). */
+  age?: number;
   complet?: boolean;
   page?: number;
   taille?: number;
@@ -35,11 +33,9 @@ function neIlYA(ans: number): Date {
   return date;
 }
 
-// Enfant : moins de 15 ans ; adulte : 15 à 59 ans ; senior : 60 ans et plus.
-function filtreTranche(tranche: TrancheAge): Prisma.PatientWhereInput {
-  if (tranche === "enfant") return { dateNaissance: { gt: neIlYA(AGE_FIN_ENFANCE) } };
-  if (tranche === "senior") return { dateNaissance: { lte: neIlYA(AGE_SENIOR) } };
-  return { dateNaissance: { gt: neIlYA(AGE_SENIOR), lte: neIlYA(AGE_FIN_ENFANCE) } };
+// Patients qui ont exactement « age » ans aujourd'hui : nés après la date de leurs « age + 1 » ans, au plus tard à celle de leurs « age » ans.
+function filtreAge(age: number): Prisma.PatientWhereInput {
+  return { dateNaissance: { gt: neIlYA(age + 1), lte: neIlYA(age) } };
 }
 const NOMBRE_MINIMAL_CHIFFRES_TELEPHONE = 3;
 
@@ -153,7 +149,7 @@ export async function listerPatientsParRecherche(role: Role, recherche?: string,
       construireFiltreRecherche(recherche),
       filtres.programmeId ? { programmeId: filtres.programmeId } : {},
       filtres.sexe ? { sexe: filtres.sexe } : {},
-      filtres.tranche ? filtreTranche(filtres.tranche) : {},
+      filtres.age !== undefined ? filtreAge(filtres.age) : {},
     ],
   };
   const taille = filtres.complet ? LIMITE_LISTE_COMPLETE : (filtres.taille ?? TAILLE_PAGE_PATIENTS);
