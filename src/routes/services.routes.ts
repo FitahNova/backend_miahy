@@ -10,7 +10,8 @@ const DIRECTION_SEULE = [Role.DIRECTION];
 const routeur = Router();
 routeur.use(exigerConnexion);
 
-routeur.get("/", exigerRole(...DIRECTION_SEULE), gererAsync(obtenirServices));
+// Lecture : aussi le Médecin chef, pour choisir le service couvert d'un partenaire.
+routeur.get("/", exigerRole(...DIRECTION_SEULE, Role.MEDECIN_CHEF), gererAsync(obtenirServices));
 routeur.post("/", exigerRole(...DIRECTION_SEULE), gererAsync(ajouterService));
 routeur.patch("/:id", exigerRole(...DIRECTION_SEULE), gererAsync(mettreAJourService));
 

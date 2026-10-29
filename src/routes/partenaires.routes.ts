@@ -16,9 +16,9 @@ import {
   telechargerDocument,
 } from "../controllers/partenaires.controller.js";
 
-// Matrice de droits du dossier de projet : « Partenaires, services et tarifs » = Direction seule.
+// Partenaires : Direction et Médecin chef, avec les mêmes droits (décision du 29/10/2026).
 const routeur = Router();
-routeur.use(exigerConnexion, exigerRole(Role.DIRECTION));
+routeur.use(exigerConnexion, exigerRole(Role.DIRECTION, Role.MEDECIN_CHEF));
 
 // Un document de 5 Mo pèse environ 6,7 Mo en base64 : limite propre à cette route.
 const LIMITE_CORPS_DOCUMENT = "8mb";
