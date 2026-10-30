@@ -65,6 +65,8 @@ const schemaLigneApprovisionnement = z.object({
   medicamentId: z.number().int().positive(),
   quantite: z.number().int().positive(),
   prixAchatUnitaire: z.number().int().nonnegative(),
+  // Péremption de cet arrivage : une autre date que celle du médicament donne une ligne de stock à part.
+  datePeremption: z.string().regex(DATE_ISO, "Date attendue : AAAA-MM-JJ").nullish(),
 });
 
 // Accepte plusieurs lignes (lignes) ou une seule ligne à plat (medicamentId, quantite, prixAchatUnitaire).

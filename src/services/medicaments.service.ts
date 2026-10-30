@@ -55,6 +55,7 @@ export interface LigneApprovisionnement {
   medicamentId: number;
   quantite: number;
   prixAchatUnitaire: number;
+  datePeremption?: string | null;
 }
 
 export interface DonneesApprovisionnement {
@@ -729,7 +730,9 @@ export async function lireApprovisionnement(id: number) {
   };
 }
 
-// Un approvisionnement peut contenir plusieurs lignes. Le prix d'achat du médicament n'est pas modifié (R073 à valider).
+// Un approvisionnement peut contenir plusieurs lignes. R073 (décision du 30/10/2026) : le prix d'achat du médicament devient
+// celui de son dernier approvisionnement, et s'affiche aussitôt dans le stock.
+// Une ligne de stock par date de péremption (décision du 30/10/2026) : voir ligneDeStockPourPeremption.
 export async function enregistrerApprovisionnement(donnees: DonneesApprovisionnement, auteurId: number) {
   const fournisseur = await prisma.fournisseur.findUnique({ where: { id: donnees.fournisseurId }, select: { actif: true } });
   if (!fournisseur || !fournisseur.actif) {
@@ -751,8 +754,14 @@ export async function enregistrerApprovisionnement(donnees: DonneesApprovisionne
       },
     });
 
+    // Chaque arrivage va sur la ligne de stock de sa date de péremption (créée au besoin).
+    const lignes = [];
+    for (const ligne of donnees.lignes) {
+      lignes.push({ ...ligne, medicamentId: await ligneDeStockPourPeremption(transaction, ligne.medicamentId, ligne.datePeremption ?? null) });
+    }
+
     await transaction.mouvementStock.createMany({
-      data: donnees.lignes.map((ligne) => ({
+      data: lignes.map((ligne) => ({
         medicamentId: ligne.medicamentId,
         type: TypeMouvement.ENTREE,
         quantite: ligne.quantite,
@@ -762,16 +771,68 @@ export async function enregistrerApprovisionnement(donnees: DonneesApprovisionne
       })),
     });
 
+    // Dernier prix d'achat de chaque ligne de stock de cet approvisionnement.
+    const derniersPrix = new Map(lignes.map((ligne) => [ligne.medicamentId, ligne.prixAchatUnitaire]));
+    for (const [medicamentId, prixAchat] of derniersPrix) {
+      await transaction.medicament.update({ where: { id: medicamentId }, data: { prixAchat } });
+    }
+
     await enregistrerAudit(transaction, {
       utilisateurId: auteurId,
       action: "APPROVISIONNEMENT",
       entite: "approvisionnement",
       entiteId: approvisionnement.id,
-      detail: { lignes: donnees.lignes.length },
+      detail: { lignes: donnees.lignes.length, prixAchatMisAJour: derniersPrix.size },
     });
 
     return { approvisionnementId: approvisionnement.id, lignes: donnees.lignes.length };
   }, OPTIONS_TRANSACTION);
+}
+
+/**
+ * Ligne de stock d'un arrivage selon sa péremption :
+ * - pas de date, ou la même date que le médicament : le médicament lui-même ;
+ * - le médicament n'a ni date ni stock : il prend la date de l'arrivage ;
+ * - sinon : la ligne du même médicament (nom, forme, catégorie) à cette date, créée si elle n'existe pas
+ *   (mêmes prix et seuil d'alerte), comme l'ajout en stock.
+ */
+async function ligneDeStockPourPeremption(transaction: Prisma.TransactionClient, medicamentId: number, datePeremption: string | null) {
+  if (!datePeremption) return medicamentId;
+  const date = new Date(datePeremption);
+  const medicament = await transaction.medicament.findUniqueOrThrow({
+    where: { id: medicamentId },
+    select: { nom: true, forme: true, categorieId: true, prixAchat: true, prixVente: true, seuilAlerte: true, datePeremption: true },
+  });
+  if (medicament.datePeremption?.toISOString().slice(0, 10) === datePeremption) return medicamentId;
+  if (!medicament.datePeremption && ((await calculerStocks(transaction, [medicamentId])).get(medicamentId) ?? 0) <= 0) {
+    await transaction.medicament.update({ where: { id: medicamentId }, data: { datePeremption: date } });
+    return medicamentId;
+  }
+  const memeDate = await transaction.medicament.findFirst({
+    where: {
+      actif: true,
+      nom: { equals: medicament.nom, mode: "insensitive" },
+      forme: medicament.forme,
+      categorieId: medicament.categorieId,
+      datePeremption: date,
+    },
+    select: { id: true },
+  });
+  if (memeDate) return memeDate.id;
+  const nouvelle = await transaction.medicament.create({
+    data: {
+      nom: medicament.nom,
+      forme: medicament.forme,
+      categorieId: medicament.categorieId,
+      prixAchat: medicament.prixAchat,
+      prixVente: medicament.prixVente,
+      seuilAlerte: medicament.seuilAlerte,
+      datePeremption: date,
+      actif: true,
+    },
+    select: { id: true },
+  });
+  return nouvelle.id;
 }
 
 // ---------- Bon de commande et inventaire ----------
@@ -809,6 +870,18 @@ export async function listerInventaire() {
   });
   const somme = (medicamentId: number, type: TypeMouvement) =>
     mouvements.find((ligne) => ligne.medicamentId === medicamentId && ligne.type === type)?._sum.quantite ?? 0;
+  // Détail des arrivées (approvisionnements et ajouts en stock), de la plus ancienne à la plus récente.
+  const entrees = await prisma.mouvementStock.findMany({
+    where: { medicamentId: { in: medicaments.map((medicament) => medicament.id) }, type: TypeMouvement.ENTREE },
+    orderBy: [{ date: "asc" }, { id: "asc" }],
+    select: {
+      medicamentId: true,
+      date: true,
+      quantite: true,
+      prixAchatUnitaire: true,
+      approvisionnement: { select: { dateReception: true, reference: true, fournisseur: { select: { nom: true } } } },
+    },
+  });
 
   return medicaments
     .sort((a, b) => a.nom.localeCompare(b.nom))
@@ -824,5 +897,42 @@ export async function listerInventaire() {
       // Les sorties sont négatives ; un retour (annulation, retrait) les compense.
       quantiteDelivree: Math.max(0, -somme(medicament.id, TypeMouvement.SORTIE) - somme(medicament.id, TypeMouvement.RETOUR)),
       observation: observationInventaire(medicament),
+      datePeremption: medicament.datePeremption,
+      arrivees: detaillerArrivees(
+        entrees.filter((entree) => entree.medicamentId === medicament.id),
+        medicament.stock,
+        medicament.prixAchat,
+      ),
     }));
+}
+
+/**
+ * Arrivées d'un médicament avec ce qu'il en reste : le stock actuel est réparti sur les arrivées les plus récentes
+ * (les plus anciennes sont sorties en premier). La somme des restes est égale au stock actuel.
+ */
+export function detaillerArrivees(
+  entrees: {
+    date: Date;
+    quantite: number;
+    prixAchatUnitaire: number | null;
+    approvisionnement: { dateReception: Date; reference: string | null; fournisseur: { nom: string } } | null;
+  }[],
+  stock: number,
+  prixActuel: number,
+) {
+  let aRepartir = Math.max(0, stock);
+  const restes = new Map<number, number>();
+  for (let index = entrees.length - 1; index >= 0; index--) {
+    const reste = Math.min(entrees[index].quantite, aRepartir);
+    restes.set(index, reste);
+    aRepartir -= reste;
+  }
+  return entrees.map((entree, index) => ({
+    date: entree.approvisionnement?.dateReception ?? entree.date,
+    fournisseur: entree.approvisionnement?.fournisseur.nom ?? null,
+    reference: entree.approvisionnement?.reference ?? null,
+    quantite: entree.quantite,
+    reste: restes.get(index) ?? 0,
+    prixAchat: entree.prixAchatUnitaire ?? prixActuel,
+  }));
 }
