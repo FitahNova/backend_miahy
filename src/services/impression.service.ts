@@ -1,7 +1,10 @@
 import { prisma } from "../config/prisma.js";
 import { StatutFacture, TypeLigneFacture } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
+import { lireActes } from "./consultations.service.js";
+import { journaliserAcces } from "./journal.service.js";
 import { calculerStocks } from "./medicaments.service.js";
+import { prochainRendezVousDuPatient } from "./rendezVous.service.js";
 
 // Coordonnées du centre, reprises sur tous les documents imprimés.
 export const CABINET = {
@@ -10,14 +13,31 @@ export const CABINET = {
   ville: "Antananarivo",
 };
 
-// Ordonnance signée : patient, allergies, prescripteur, lignes de prescription.
-export async function obtenirDonneesOrdonnance(passageId: number) {
+// Papier remis au patient après la consultation : consultation signée, ordonnance s'il y en a une,
+// prochain rendez-vous. Sans consultation signée ni ordonnance, il n'y a rien à imprimer.
+export async function obtenirDonneesOrdonnance(passageId: number, utilisateurId: number) {
   const passage = await prisma.passage.findUnique({
     where: { id: passageId },
     select: {
       id: true,
+      motif: true,
+      praticien: { select: { civilite: true, nom: true, prenom: true, role: true } },
       patient: {
-        select: { numeroDossier: true, nom: true, prenom: true, sexe: true, dateNaissance: true, allergies: true },
+        select: { id: true, numeroDossier: true, nom: true, prenom: true, sexe: true, dateNaissance: true, allergies: true },
+      },
+      consultation: {
+        select: {
+          signeeLe: true,
+          tension: true,
+          poidsKg: true,
+          pouls: true,
+          temperature: true,
+          spo2: true,
+          glycemie: true,
+          examen: true,
+          diagnostic: true,
+          brouillon: true,
+        },
       },
       ordonnance: {
         select: {
@@ -41,16 +61,39 @@ export async function obtenirDonneesOrdonnance(passageId: number) {
     },
   });
   if (!passage) throw new ErreurHttp(404, "PASSAGE_INTROUVABLE");
-  if (!passage.ordonnance) throw new ErreurHttp(404, "ORDONNANCE_INTROUVABLE");
+  const consultation = passage.consultation?.signeeLe ? passage.consultation : null;
+  if (!passage.ordonnance && !consultation) throw new ErreurHttp(404, "ORDONNANCE_INTROUVABLE");
+
+  const [prochainRendezVous, actes] = await Promise.all([
+    prochainRendezVousDuPatient(passage.patient.id),
+    consultation
+      ? prisma.service.findMany({ where: { id: { in: lireActes(consultation.brouillon) } }, orderBy: { id: "asc" }, select: { nom: true } })
+      : [],
+  ]);
+  // Trace de la lecture des données médicales, comme à l'ouverture de la consultation.
+  if (consultation) await journaliserAcces(utilisateurId, "LECTURE_CONSULTATION", "passage", passageId);
 
   return {
     cabinet: CABINET,
-    date: passage.ordonnance.creeLe,
+    date: consultation?.signeeLe ?? passage.ordonnance?.creeLe,
     numero: `ORD-${passage.id}`,
     patient: passage.patient,
-    prescripteur: passage.ordonnance.prescripteur,
+    prescripteur: passage.ordonnance?.prescripteur ?? passage.praticien,
+    consultation: consultation && {
+      motif: passage.motif,
+      tension: consultation.tension,
+      poidsKg: consultation.poidsKg,
+      pouls: consultation.pouls,
+      temperature: consultation.temperature,
+      spo2: consultation.spo2,
+      glycemie: consultation.glycemie,
+      examen: consultation.examen,
+      diagnostic: consultation.diagnostic,
+      actes: actes.map((acte) => acte.nom),
+    },
+    prochainRendezVous,
     // Médicament hors stock : le nom saisi par le praticien, sans forme.
-    lignes: passage.ordonnance.lignes.map(({ libelle, medicament, ...ligne }) => ({
+    lignes: (passage.ordonnance?.lignes ?? []).map(({ libelle, medicament, ...ligne }) => ({
       ...ligne,
       doseParPrise: Number(ligne.doseParPrise),
       medicament: medicament ?? { nom: libelle ?? "", forme: "" },

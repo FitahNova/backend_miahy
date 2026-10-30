@@ -1,9 +1,11 @@
 import type { Request, Response } from "express";
 import { obtenirBonDeDelivrance, obtenirDonneesOrdonnance, obtenirInventaire } from "../services/impression.service.js";
+import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
 
 export async function imprimerOrdonnance(requete: Request, reponse: Response) {
-  const donnees = await obtenirDonneesOrdonnance(lireIdentifiant(requete.params.passageId));
+  if (!requete.utilisateur) throw new ErreurHttp(401, "CONNEXION_REQUISE");
+  const donnees = await obtenirDonneesOrdonnance(lireIdentifiant(requete.params.passageId), requete.utilisateur.id);
   reponse.json(donnees);
 }
 

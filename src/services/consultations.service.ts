@@ -7,7 +7,7 @@ import { verifierMotifGrossesse } from "../utils/motifs.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { journaliserAcces } from "./journal.service.js";
 import { terminerPassageDansTransaction } from "./passages.service.js";
-import { creerRendezVousDeRevue } from "./rendezVous.service.js";
+import { creerRendezVousDeRevue, prochainRendezVousDuPatient } from "./rendezVous.service.js";
 import { creerSuiviAutomatique } from "./suivis.service.js";
 import { jourDuCentre } from "../utils/suivis.js";
 
@@ -54,7 +54,7 @@ interface Brouillon {
   actes?: number[];
 }
 
-function lireActes(brouillon: Prisma.JsonValue | null | undefined): number[] {
+export function lireActes(brouillon: Prisma.JsonValue | null | undefined): number[] {
   const actes = (brouillon as Brouillon | null)?.actes;
   return Array.isArray(actes) ? actes.filter((id) => Number.isInteger(id)) : [];
 }
@@ -95,7 +95,7 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
   // Trace de la lecture avant de renvoyer les données médicales.
   await journaliserAcces(utilisateur.id, "LECTURE_CONSULTATION", "passage", passageId);
 
-  const [consultation, visites, services] = await Promise.all([
+  const [consultation, visites, services, prochainRendezVous] = await Promise.all([
     prisma.consultation.findUnique({ where: { passageId } }),
     prisma.consultation.findMany({
       where: { signeeLe: { not: null }, passage: { patientId: passage.patient.id, id: { not: passageId } } },
@@ -111,6 +111,7 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
       },
     }),
     prisma.service.findMany({ where: { actif: true }, orderBy: { id: "asc" }, select: { id: true, nom: true, prix: true } }),
+    prochainRendezVousDuPatient(passage.patient.id),
   ]);
 
   // Par défaut, l'acte « Consultation » est coché (maquette). Le nom peut avoir été retouché
@@ -129,6 +130,7 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
       motif: passage.motif,
       patient: passage.patient,
       dernieresVisites: visites.map(({ passage: visite, ...reste }) => ({ ...reste, praticien: visite.praticien })),
+      prochainRendezVous,
       services,
       actesParDefaut: actes,
     },

@@ -18,6 +18,15 @@ import { creerPassageDansTransaction } from "./passages.service.js";
 import { coordonneesVisibles } from "./patients.service.js";
 import { compterSuivis, creerSuiviAutomatique } from "./suivis.service.js";
 
+/** Prochain rendez-vous encore prévu du patient (fiche de consultation, papier remis au patient). */
+export function prochainRendezVousDuPatient(patientId: number) {
+  return prisma.rendezVous.findFirst({
+    where: { patientId, statut: StatutRendezVous.PREVU, dateHeure: { gte: new Date() } },
+    orderBy: { dateHeure: "asc" },
+    select: { dateHeure: true, motif: true, praticien: { select: { civilite: true, nom: true, prenom: true } } },
+  });
+}
+
 const FUSEAU = "Indian/Antananarivo";
 const DECALAGE_FUSEAU = "+03:00";
 const MS_PAR_JOUR = 24 * 60 * 60 * 1000;
