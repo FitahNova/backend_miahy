@@ -53,7 +53,8 @@ const schemaPage = z.object({
   taille: z.coerce.number().int().min(1).max(TAILLE_PAGE_MAXIMALE).default(TAILLE_PAGE),
 });
 
-const schemaReouverture = z.object({ motif: z.string().trim().min(5).max(255) }).strict();
+// Réouverture : motif et mot de passe de la Direction (confirmation de l'action).
+const schemaReouverture = z.object({ motif: z.string().trim().min(5).max(255), motDePasse: z.string().min(1).max(200) }).strict();
 
 function lireUtilisateurId(requete: Request): number {
   if (!requete.utilisateur) throw new ErreurHttp(401, "CONNEXION_REQUISE");
@@ -123,8 +124,8 @@ export async function historiqueClotures(requete: Request, reponse: Response) {
 /** POST /api/caisse/cloture/:jour/reouverture (Direction) : rouvre la caisse du jour, avec un motif. */
 export async function rouvrirJournee(requete: Request, reponse: Response) {
   const jour = schemaJour.parse(requete.params.jour);
-  const { motif } = schemaReouverture.parse(requete.body);
-  await rouvrirLaJournee(jour, motif, lireUtilisateurId(requete));
+  const { motif, motDePasse } = schemaReouverture.parse(requete.body);
+  await rouvrirLaJournee(jour, motif, motDePasse, lireUtilisateurId(requete));
   diffuser(EVENEMENTS.CAISSE_MODIFIEE, { jour });
   reponse.status(204).end();
 }

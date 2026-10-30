@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import { prisma } from "../config/prisma.js";
 import { ModePaiement, StatutFacture, type Prisma } from "../generated/prisma/client.js";
 import {
@@ -392,11 +393,22 @@ export async function listerClotures(page = 1, taille = TAILLE_PAGE) {
 /**
  * Réouverture de la caisse du jour par la Direction (oubli d'un paiement, erreur de comptage…), avec un motif.
  * La clôture est retirée et les paiements redeviennent libres : ils seront figés par la prochaine clôture.
- * Le journal garde le comptage retiré, qui l'avait fait, et le motif.
- * @throws 400 REOUVERTURE_JOUR_COURANT ; 404 CLOTURE_INTROUVABLE
+ * Le journal garde le comptage retiré, qui l'avait fait, et le motif. La Direction confirme avec son mot de passe :
+ * un mot de passe faux est refusé et noté au journal.
+ * @throws 400 REOUVERTURE_JOUR_COURANT ; 403 MOT_DE_PASSE_INCORRECT ; 404 CLOTURE_INTROUVABLE
  */
-export async function rouvrirLaJournee(jour: string, motif: string, utilisateurId: number) {
+export async function rouvrirLaJournee(jour: string, motif: string, motDePasse: string, utilisateurId: number) {
   if (jour !== lireJourCourant()) throw new ErreurHttp(400, "REOUVERTURE_JOUR_COURANT");
+  const auteur = await prisma.utilisateur.findUnique({ where: { id: utilisateurId }, select: { motDePasseHash: true } });
+  if (!auteur || !(await bcrypt.compare(motDePasse, auteur.motDePasseHash))) {
+    await enregistrerAudit(prisma, {
+      utilisateurId,
+      action: "REOUVERTURE_CAISSE_REFUSEE",
+      entite: "cloture_caisse",
+      detail: { jour, raison: "Mot de passe incorrect" },
+    });
+    throw new ErreurHttp(403, "MOT_DE_PASSE_INCORRECT");
+  }
   return prisma.$transaction(async (tx) => {
     const cloture = await tx.clotureCaisse.findUnique({ where: { jour: jourEnDate(jour) } });
     if (!cloture) throw new ErreurHttp(404, "CLOTURE_INTROUVABLE");
