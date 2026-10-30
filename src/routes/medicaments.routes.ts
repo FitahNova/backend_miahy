@@ -49,7 +49,8 @@ routeur.get("/fournisseurs", exigerRole(...LECTURE_STOCK), gererAsync(obtenirFou
 routeur.get("/approvisionnements", exigerRole(...LECTURE_STOCK), gererAsync(obtenirApprovisionnements));
 routeur.get("/approvisionnements/:id", exigerRole(...LECTURE_STOCK), gererAsync(obtenirApprovisionnement));
 routeur.get("/a-commander", exigerRole(...LECTURE_STOCK), gererAsync(obtenirProduitsACommander));
-routeur.get("/inventaire", exigerRole(...LECTURE_STOCK), gererAsync(obtenirInventaire));
+// Fiche d'inventaire : Direction seulement, comme son impression.
+routeur.get("/inventaire", exigerRole(...DIRECTION_SEULE), gererAsync(obtenirInventaire));
 
 routeur.post("/", exigerRole(...DIRECTION_SEULE), gererAsync(ajouterMedicament));
 routeur.post("/lot", exigerRole(...DIRECTION_SEULE), gererAsync(ajouterMedicamentsEnLot));
