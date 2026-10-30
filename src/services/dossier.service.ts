@@ -205,7 +205,7 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
       )
     : [];
 
-  // Documents à réimprimer : ordonnances (clinique) et reçus (tous).
+  // Documents à réimprimer : ordonnances (clinique) et reçus (pas pour les soignants).
   const documents = [
     ...ordonnances.map((ordonnance) => ({
       type: "ORDONNANCE" as const,
@@ -214,17 +214,19 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
       passageId: ordonnance.passageId,
       factureId: null,
     })),
-    ...passages.flatMap((passage) =>
-      passage.factures
-        .filter((facture) => facture.montantPaye > 0 && facture.statut !== "ANNULEE")
-        .map((facture) => ({
-          type: "RECU" as const,
-          date: facture.paiements[0]?.date ?? passage.heureArrivee,
-          libelle: `Reçu ${facture.numero}`,
-          passageId: null,
-          factureId: facture.id,
-        })),
-    ),
+    ...(soignant
+      ? []
+      : passages.flatMap((passage) =>
+          passage.factures
+            .filter((facture) => facture.montantPaye > 0 && facture.statut !== "ANNULEE")
+            .map((facture) => ({
+              type: "RECU" as const,
+              date: facture.paiements[0]?.date ?? passage.heureArrivee,
+              libelle: `Reçu ${facture.numero}`,
+              passageId: null,
+              factureId: facture.id,
+            })),
+        )),
   ].sort((a, b) => b.date.getTime() - a.date.getTime());
 
   const evenements: Evenement[] = [];
@@ -244,6 +246,8 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
         libelle: `Consultation${passage.praticien ? ` · ${passage.praticien.nom}` : ""}`,
         detail: clinique ? (consultation.diagnostic ?? null) : null,
         consultationId: clinique ? consultation.id : undefined,
+        // Sans ordonnance : le papier du patient se réimprime depuis la consultation.
+        passageId: clinique && !passage.ordonnance ? passage.id : undefined,
         corrections: clinique
           ? consultation.corrections.map((c) => ({ date: c.creeLe, auteur: c.auteur.nom, texte: c.texte }))
           : [],
