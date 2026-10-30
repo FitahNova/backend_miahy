@@ -132,7 +132,7 @@ image_scan:
     paths:
       - .trivycache/
   script:
-    - trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_DIGEST_REF"
+    - trivy image --timeout 20m --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_DIGEST_REF"
 
 
 dast:
