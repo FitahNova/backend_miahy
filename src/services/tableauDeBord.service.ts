@@ -89,7 +89,7 @@ function resumer(
 }
 
 /**
- * Blocs « Aujourd'hui » et « Ce mois », programmes et alertes.
+ * Blocs « Aujourd'hui » et « Ce mois », programmes.
  * Les montants ne sont présents que pour la Direction.
  */
 export async function obtenirSynthese(role: Role) {
@@ -99,12 +99,11 @@ export async function obtenirSynthese(role: Role) {
   const finJour = debutDuJour(ajouterJours(aujourdhui, 1));
   const debutMois = debutDuJour(`${aujourdhui.slice(0, 8)}01`);
 
-  const [activiteJour, activiteMois, nouveauxMois, programmes, alertes] = await Promise.all([
+  const [activiteJour, activiteMois, nouveauxMois, programmes] = await Promise.all([
     lireActivite(debutJour, finJour, avecFinances),
     lireActivite(debutMois, finJour, avecFinances),
     compterNouveauxPatients(debutMois, finJour),
     syntheseProgrammes(),
-    lireAlertes(avecFinances),
   ]);
 
   const mois = resumer(activiteMois, avecFinances);
@@ -117,7 +116,6 @@ export async function obtenirSynthese(role: Role) {
       ...(avecFinances && "chiffreAffaires" in mois ? await calculerResultatDuMois(aujourdhui, mois.chiffreAffaires) : {}),
     },
     programmes,
-    alertes,
   };
 }
 
@@ -161,25 +159,33 @@ async function syntheseProgrammes() {
   }));
 }
 
-/** Alertes de la maquette disponibles avec les données actuelles. */
-async function lireAlertes(avecFinances: boolean) {
-  const alertes: { cle: string; nombre: number; libelle: string; lien: string; gravite: "erreur" | "avertissement" }[] = [];
+// Stock : Direction et Médecin chef. Caisse : Direction seule (finances). Rendez-vous : tous les comptes.
+const ROLES_ALERTE_STOCK: Role[] = [Role.DIRECTION, Role.MEDECIN_CHEF];
+
+/**
+ * Alertes de la cloche, selon le rôle. Sans lien : lecture seule (la Direction voit les rendez-vous dépassés,
+ * mais ils sont traités par la secrétaire et les soignants).
+ */
+export async function obtenirAlertes(role: Role) {
+  const alertes: { cle: string; nombre: number; libelle: string; lien: string | null; gravite: "erreur" | "avertissement" }[] = [];
 
   const rdvEnRetard = await prisma.rendezVous.count({
     where: { statut: StatutRendezVous.PREVU, dateHeure: { lt: new Date() } },
   });
   if (rdvEnRetard) {
-    alertes.push({ cle: "rdv", nombre: rdvEnRetard, libelle: "rendez-vous dépassés à traiter", lien: "/rendez-vous", gravite: "erreur" });
+    alertes.push({ cle: "rdv", nombre: rdvEnRetard, libelle: "rendez-vous dépassés à traiter", lien: role === Role.DIRECTION ? null : "/rendez-vous", gravite: "erreur" });
   }
 
-  const medicaments = await prisma.medicament.findMany({ where: { actif: true }, select: { id: true, seuilAlerte: true } });
-  const stocks = await calculerStocks(prisma, medicaments.map((medicament) => medicament.id));
-  const sousSeuil = medicaments.filter((medicament) => (stocks.get(medicament.id) ?? 0) < medicament.seuilAlerte).length;
-  if (sousSeuil) {
-    alertes.push({ cle: "stock", nombre: sousSeuil, libelle: "médicaments sous le seuil d'alerte", lien: "/medicaments", gravite: "avertissement" });
+  if (ROLES_ALERTE_STOCK.includes(role)) {
+    const medicaments = await prisma.medicament.findMany({ where: { actif: true }, select: { id: true, seuilAlerte: true } });
+    const stocks = await calculerStocks(prisma, medicaments.map((medicament) => medicament.id));
+    const sousSeuil = medicaments.filter((medicament) => (stocks.get(medicament.id) ?? 0) < medicament.seuilAlerte).length;
+    if (sousSeuil) {
+      alertes.push({ cle: "stock", nombre: sousSeuil, libelle: "médicaments sous le seuil d'alerte", lien: "/medicaments", gravite: "avertissement" });
+    }
   }
 
-  if (avecFinances) {
+  if (finances(role)) {
     const derniere = await prisma.clotureCaisse.findFirst({ orderBy: { jour: "desc" }, select: { ecart: true } });
     if (derniere && derniere.ecart !== 0) {
       alertes.push({ cle: "ecart", nombre: derniere.ecart, libelle: "écart à la dernière clôture de caisse", lien: "/caisse", gravite: "avertissement" });

@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { obtenirEvolution, obtenirSynthese } from "../services/tableauDeBord.service.js";
+import { obtenirAlertes, obtenirEvolution, obtenirSynthese } from "../services/tableauDeBord.service.js";
 import { ErreurHttp } from "../utils/errors.js";
 
 const schemaPeriode = z.object({ periode: z.enum(["7j", "30j", "90j", "12m"]).default("30j") });
@@ -10,9 +10,14 @@ function lireRole(requete: Request) {
   return requete.utilisateur.role;
 }
 
-/** GET /api/tableau-de-bord : blocs du jour et du mois, programmes, alertes. */
+/** GET /api/tableau-de-bord : blocs du jour et du mois, programmes. */
 export async function synthese(requete: Request, reponse: Response) {
   reponse.json(await obtenirSynthese(lireRole(requete)));
+}
+
+/** GET /api/tableau-de-bord/alertes : alertes de la cloche, selon le rôle. */
+export async function alertes(requete: Request, reponse: Response) {
+  reponse.json(await obtenirAlertes(lireRole(requete)));
 }
 
 /** GET /api/tableau-de-bord/evolution?periode=30j */
