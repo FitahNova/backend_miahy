@@ -39,8 +39,9 @@ const schemaNouveauPassage = z.object({
   motif: z.string().trim().min(1).max(255),
   orientation: z.enum(Orientation).nullish(),
   urgence: z.boolean().optional(),
-  // Arrivée : le patient est affecté à un praticien (médecin, médecin chef ou sage-femme).
-  praticienId: z.number().int().positive(),
+  // Arrivée : le patient est orienté vers une fonction (Médecin ou Sage-femme) ; un praticien précis reste possible
+  // (rendez-vous). Tous les soignants de la fonction le voient et peuvent le prendre.
+  praticienId: z.number().int().positive().nullish(),
   constantes: z.object({
     tension: z.string().trim().regex(/^\d{2,3}\/\d{2,3}$/).optional(),
     poidsKg: z.number().positive().max(400).optional(),
@@ -51,6 +52,9 @@ const schemaNouveauPassage = z.object({
   }).optional(),
   allergies: z.string().trim().max(2000).nullable().optional(),
   sensible: z.boolean().optional(),
+}).refine((passage) => passage.orientation != null || passage.praticienId != null, {
+  path: ["orientation"],
+  message: "Choisissez Médecin ou Sage-femme",
 });
 
 const schemaUrgence = z.object({ urgence: z.boolean() });

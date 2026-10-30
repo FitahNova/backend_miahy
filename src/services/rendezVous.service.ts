@@ -29,8 +29,6 @@ export interface UtilisateurConnecte {
   role: Role;
 }
 
-/** Les praticiens « simples » ne voient que leurs propres rendez-vous (maquette : « Mes rendez-vous »). */
-const voitSeulementLesSiens = (role: Role) => role === Role.MEDECIN || role === Role.SAGE_FEMME;
 const estClinicien = (role: Role) => (SOIGNANTS as readonly Role[]).includes(role);
 
 function jourDuCentre(date: Date): string {
@@ -87,8 +85,8 @@ export async function listerRendezVous(filtre: { du: string; au: string }, utili
   const fin = bornesDuJour(filtre.au).fin;
   const rendezVous = await prisma.rendezVous.findMany({
     where: {
+      // Tous les rôles voient tous les rendez-vous (décision du 29/10/2026), sans filtre par praticien.
       dateHeure: { gte: debut, lt: fin },
-      ...(voitSeulementLesSiens(utilisateur.role) ? { praticienId: utilisateur.id } : {}),
     },
     orderBy: { dateHeure: "asc" },
     select: {
@@ -381,12 +379,12 @@ export async function lireCompteurs(utilisateur: UtilisateurConnecte) {
   if (role === Role.SECRETAIRE || estClinicien(role)) {
     const orientation =
       role === Role.SAGE_FEMME ? Orientation.SAGE_FEMME : estClinicien(role) ? Orientation.MEDECIN : undefined;
-    // Médecin et sage-femme : leurs patients affectés seulement (comme leur file d'attente).
+    // Médecin et sage-femme : les patients en attente de leur fonction (comme leur file d'attente).
     compteurs.fileAttente = await prisma.passage.count({
       where: {
         statut: StatutPassage.EN_ATTENTE,
-        ...(voitSeulementLesSiens(role)
-          ? { praticienId: utilisateur.id }
+        ...(orientation === Orientation.SAGE_FEMME
+          ? { orientation }
           : orientation
             ? { OR: [{ orientation }, { orientation: null }] }
             : {}),
@@ -396,7 +394,6 @@ export async function lireCompteurs(utilisateur: UtilisateurConnecte) {
       where: {
         statut: StatutRendezVous.PREVU,
         dateHeure: { gte: debut, lt: fin },
-        ...(voitSeulementLesSiens(role) ? { praticienId: utilisateur.id } : {}),
       },
     });
     const suivis = await compterSuivis();

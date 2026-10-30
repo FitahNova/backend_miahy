@@ -61,9 +61,21 @@ function ajouterIndicateursAttente<T extends { statut: StatutPassage; heureArriv
   };
 }
 
-// Médecin et sage-femme ne voient et ne prennent que les patients qui leur sont affectés ;
-// le Médecin chef voit toute la file (même règle que les rendez-vous).
-export const voitSeulementSesPatients = (role: Role) => role === Role.MEDECIN || role === Role.SAGE_FEMME;
+// File par fonction (décision du 29/10/2026) : un médecin voit et peut prendre tous les patients orientés
+// « Médecin », une sage-femme tous ceux orientés « Sage-femme » ; le Médecin chef voit toute la file.
+export const voitSeulementSaFonction = (role: Role) => role === Role.MEDECIN || role === Role.SAGE_FEMME;
+
+/** Patients de la fonction du soignant (sans orientation = médecin), plus ceux qu'il a déjà pris en charge. */
+function filtreFonction(utilisateur: { id: number; role: Role }): Prisma.PassageWhereInput {
+  const orientation = orientationDuPraticien(utilisateur.role);
+  return {
+    OR: [
+      { orientation },
+      ...(orientation === Orientation.MEDECIN ? [{ orientation: null }] : []),
+      { praticienId: utilisateur.id },
+    ],
+  };
+}
 
 // L'orientation suit le praticien affecté : sage-femme ou médecin (médecin chef compris).
 const orientationDuPraticien = (role: Role) => (role === Role.SAGE_FEMME ? Orientation.SAGE_FEMME : Orientation.MEDECIN);
@@ -86,7 +98,7 @@ async function verifierPraticien(identifiant: number) {
 async function obtenirPassageExistant(identifiant: number) {
   const passage = await prisma.passage.findUnique({
     where: { id: identifiant },
-    select: { id: true, statut: true, praticienId: true, urgence: true },
+    select: { id: true, statut: true, praticienId: true, urgence: true, orientation: true },
   });
   if (!passage) {
     throw new ErreurHttp(404, "PASSAGE_INTROUVABLE");
@@ -102,7 +114,7 @@ export async function listerPassagesDeLaFile(statuts: StatutPassage[], utilisate
   const passages = await prisma.passage.findMany({
     where: {
       statut: { in: statuts },
-      ...(voitSeulementSesPatients(utilisateur.role) ? { praticienId: utilisateur.id } : {}),
+      ...(voitSeulementSaFonction(utilisateur.role) ? filtreFonction(utilisateur) : {}),
     },
     orderBy: { heureArrivee: "asc" },
     select: selectionPassage,
@@ -223,15 +235,15 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
 }
 
 /**
- * R043 : un médecin ou une sage-femme ne prend en charge que son patient (ou un patient non affecté) ;
- * le Médecin chef peut prendre n'importe quel patient de la file.
- * @throws 404 PASSAGE_INTROUVABLE, 403 PATIENT_NON_ASSIGNE, 409 PASSAGE_PLUS_EN_ATTENTE
+ * Un médecin ou une sage-femme prend en charge n'importe quel patient de sa fonction (sans orientation = médecin) ;
+ * le Médecin chef peut prendre n'importe quel patient de la file. Celui qui prend devient le praticien du passage.
+ * @throws 404 PASSAGE_INTROUVABLE, 403 PATIENT_AUTRE_FONCTION, 409 PASSAGE_PLUS_EN_ATTENTE
  */
 export async function prendrePassageEnCharge(passageId: number, utilisateur: { id: number; role: Role }) {
   const praticienId = utilisateur.id;
   const existant = await obtenirPassageExistant(passageId);
-  if (voitSeulementSesPatients(utilisateur.role) && existant.praticienId !== null && existant.praticienId !== praticienId) {
-    throw new ErreurHttp(403, "PATIENT_NON_ASSIGNE");
+  if (voitSeulementSaFonction(utilisateur.role) && (existant.orientation ?? Orientation.MEDECIN) !== orientationDuPraticien(utilisateur.role)) {
+    throw new ErreurHttp(403, "PATIENT_AUTRE_FONCTION");
   }
   const pris = await prisma.$transaction(async (transaction) => {
     const resultat = await transaction.passage.updateMany({
