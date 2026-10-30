@@ -17,7 +17,8 @@ import { lireIdentifiant, lireUtilisateur } from "../utils/parametres.js";
 // La date de naissance peut être remplacée par l'âge (R016) : voir regleNaissance.
 const champsPatient = {
   nom: champNom().min(1),
-  prenom: champPrenom().min(1),
+  // Prénom facultatif (décision du 29/10/2026) : vide = rien d'affiché.
+  prenom: champPrenom().default(""),
   sexe: z.enum(["H", "F"]),
   ...champsNaissance,
   telephone: z.string().trim().max(20).nullish(),
