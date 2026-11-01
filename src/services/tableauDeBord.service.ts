@@ -9,10 +9,12 @@
  * - Variation = comparaison avec la période de même durée qui précède.
  * Toutes les dates sont lues dans le fuseau du centre (Madagascar, UTC+3).
  */
+import { JOURS_ALERTE_PEREMPTION } from "../config/constants.js";
 import { prisma } from "../config/prisma.js";
 import { Role, StatutFacture, StatutRendezVous } from "../generated/prisma/client.js";
 import { calculerStocks } from "./medicaments.service.js";
 import { lireTotalMensuel } from "./charges.service.js";
+import { compterAlertesStock } from "../utils/peremption.js";
 
 const FUSEAU = "Indian/Antananarivo";
 const DECALAGE_FUSEAU = "+03:00";
@@ -177,12 +179,16 @@ export async function obtenirAlertes(role: Role) {
   }
 
   if (ROLES_ALERTE_STOCK.includes(role)) {
-    const medicaments = await prisma.medicament.findMany({ where: { actif: true }, select: { id: true, seuilAlerte: true } });
+    const medicaments = await prisma.medicament.findMany({ where: { actif: true }, select: { id: true, seuilAlerte: true, datePeremption: true } });
     const stocks = await calculerStocks(prisma, medicaments.map((medicament) => medicament.id));
-    const sousSeuil = medicaments.filter((medicament) => (stocks.get(medicament.id) ?? 0) < medicament.seuilAlerte).length;
-    if (sousSeuil) {
-      alertes.push({ cle: "stock", nombre: sousSeuil, libelle: "médicaments sous le seuil d'alerte", lien: "/medicaments", gravite: "avertissement" });
-    }
+    const compte = compterAlertesStock(medicaments.map((medicament) => ({ ...medicament, stock: stocks.get(medicament.id) ?? 0 })));
+    const ajouter = (cle: string, nombre: number, singulier: string, pluriel: string, onglet: string, gravite: "erreur" | "avertissement") => {
+      if (nombre) alertes.push({ cle, nombre, libelle: nombre > 1 ? pluriel : singulier, lien: `/medicaments?onglet=${onglet}`, gravite });
+    };
+    ajouter("perimes", compte.perimes, "médicament périmé encore en stock", "médicaments périmés encore en stock", "perimes", "erreur");
+    ajouter("ruptures", compte.ruptures, "médicament en rupture", "médicaments en rupture", "rupture", "erreur");
+    ajouter("proches", compte.proches, `médicament périme dans les ${JOURS_ALERTE_PEREMPTION} jours`, `médicaments périment dans les ${JOURS_ALERTE_PEREMPTION} jours`, "proches", "avertissement");
+    ajouter("seuil", compte.sousSeuil, "médicament sous le seuil d'alerte", "médicaments sous le seuil d'alerte", "rupture", "avertissement");
   }
 
   if (finances(role)) {
@@ -195,7 +201,8 @@ export async function obtenirAlertes(role: Role) {
       alertes.push({ cle: "partiels", nombre: partiels, libelle: "paiements partiels (reste dû)", lien: "/caisse", gravite: "avertissement" });
     }
   }
-  return alertes;
+  // Les alertes rouges d'abord.
+  return alertes.sort((a, b) => Number(b.gravite === "erreur") - Number(a.gravite === "erreur"));
 }
 
 // ---------- Évolution ----------

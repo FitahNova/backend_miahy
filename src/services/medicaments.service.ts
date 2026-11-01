@@ -2,7 +2,7 @@ import { prisma } from "../config/prisma.js";
 import { Prisma, TypeMouvement } from "../generated/prisma/client.js";
 import { TAILLE_PAGE } from "../config/constants.js";
 import { ErreurHttp } from "../utils/errors.js";
-import { estPerime, observationInventaire } from "../utils/peremption.js";
+import { estPerime, estProcheDePeremption, observationInventaire } from "../utils/peremption.js";
 import { compterProduitsDisponibles } from "../utils/produits.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
@@ -129,6 +129,7 @@ async function lireMedicamentsAvecStock() {
       stock,
       etat: etatDuStock(stock, medicament.seuilAlerte),
       marge: margePourcent(medicament.prixAchat, medicament.prixVente),
+      procheDePeremption: estProcheDePeremption(medicament.datePeremption),
     };
   });
 }
