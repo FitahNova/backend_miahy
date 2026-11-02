@@ -3,7 +3,7 @@ import { Prisma, TypeMouvement } from "../generated/prisma/client.js";
 import { TAILLE_PAGE } from "../config/constants.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { estPerime, estProcheDePeremption, observationInventaire } from "../utils/peremption.js";
-import { compterProduitsDisponibles } from "../utils/produits.js";
+import { compterProduitsDisponibles, memeLigneDeStock } from "../utils/produits.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 
@@ -731,9 +731,9 @@ export async function lireApprovisionnement(id: number) {
   };
 }
 
-// Un approvisionnement peut contenir plusieurs lignes. R073 (décision du 30/10/2026) : le prix d'achat du médicament devient
-// celui de son dernier approvisionnement, et s'affiche aussitôt dans le stock.
-// Une ligne de stock par date de péremption (décision du 30/10/2026) : voir ligneDeStockPourPeremption.
+// Un approvisionnement peut contenir plusieurs lignes.
+// Une ligne de stock par date de péremption et par prix d'achat (décision du 02/11/2026, remplace R073) :
+// le stock déjà là garde son prix. Voir ligneDeStockDeLArrivage.
 export async function enregistrerApprovisionnement(donnees: DonneesApprovisionnement, auteurId: number) {
   const fournisseur = await prisma.fournisseur.findUnique({ where: { id: donnees.fournisseurId }, select: { actif: true } });
   if (!fournisseur || !fournisseur.actif) {
@@ -755,10 +755,13 @@ export async function enregistrerApprovisionnement(donnees: DonneesApprovisionne
       },
     });
 
-    // Chaque arrivage va sur la ligne de stock de sa date de péremption (créée au besoin).
+    // Chaque arrivage va sur la ligne de stock de sa date et de son prix d'achat (créée au besoin).
     const lignes = [];
     for (const ligne of donnees.lignes) {
-      lignes.push({ ...ligne, medicamentId: await ligneDeStockPourPeremption(transaction, ligne.medicamentId, ligne.datePeremption ?? null) });
+      lignes.push({
+        ...ligne,
+        medicamentId: await ligneDeStockDeLArrivage(transaction, ligne.medicamentId, ligne.datePeremption ?? null, ligne.prixAchatUnitaire),
+      });
     }
 
     await transaction.mouvementStock.createMany({
@@ -772,18 +775,12 @@ export async function enregistrerApprovisionnement(donnees: DonneesApprovisionne
       })),
     });
 
-    // Dernier prix d'achat de chaque ligne de stock de cet approvisionnement.
-    const derniersPrix = new Map(lignes.map((ligne) => [ligne.medicamentId, ligne.prixAchatUnitaire]));
-    for (const [medicamentId, prixAchat] of derniersPrix) {
-      await transaction.medicament.update({ where: { id: medicamentId }, data: { prixAchat } });
-    }
-
     await enregistrerAudit(transaction, {
       utilisateurId: auteurId,
       action: "APPROVISIONNEMENT",
       entite: "approvisionnement",
       entiteId: approvisionnement.id,
-      detail: { lignes: donnees.lignes.length, prixAchatMisAJour: derniersPrix.size },
+      detail: { lignes: donnees.lignes.length },
     });
 
     return { approvisionnementId: approvisionnement.id, lignes: donnees.lignes.length };
@@ -791,41 +788,50 @@ export async function enregistrerApprovisionnement(donnees: DonneesApprovisionne
 }
 
 /**
- * Ligne de stock d'un arrivage selon sa péremption :
- * - pas de date, ou la même date que le médicament : le médicament lui-même ;
- * - le médicament n'a ni date ni stock : il prend la date de l'arrivage ;
- * - sinon : la ligne du même médicament (nom, forme, catégorie) à cette date, créée si elle n'existe pas
- *   (mêmes prix et seuil d'alerte), comme l'ajout en stock.
+ * Ligne de stock d'un arrivage, selon sa péremption (sans date : celle du médicament choisi) et son prix d'achat :
+ * - même date et même prix : le médicament choisi ;
+ * - le médicament choisi est vide, sans date ou à la même date : il prend la date et le prix de l'arrivage ;
+ * - sinon : la ligne identique (nom, forme, catégorie, prix de vente, date, prix d'achat), créée si elle n'existe pas.
  */
-async function ligneDeStockPourPeremption(transaction: Prisma.TransactionClient, medicamentId: number, datePeremption: string | null) {
-  if (!datePeremption) return medicamentId;
-  const date = new Date(datePeremption);
+async function ligneDeStockDeLArrivage(
+  transaction: Prisma.TransactionClient,
+  medicamentId: number,
+  datePeremption: string | null,
+  prixAchat: number,
+) {
   const medicament = await transaction.medicament.findUniqueOrThrow({
     where: { id: medicamentId },
     select: { nom: true, forme: true, categorieId: true, prixAchat: true, prixVente: true, seuilAlerte: true, datePeremption: true },
   });
-  if (medicament.datePeremption?.toISOString().slice(0, 10) === datePeremption) return medicamentId;
-  if (!medicament.datePeremption && ((await calculerStocks(transaction, [medicamentId])).get(medicamentId) ?? 0) <= 0) {
-    await transaction.medicament.update({ where: { id: medicamentId }, data: { datePeremption: date } });
+  const jourActuel = medicament.datePeremption?.toISOString().slice(0, 10) ?? null;
+  const jour = datePeremption ?? jourActuel;
+  if (memeLigneDeStock(medicament, jour, prixAchat)) return medicamentId;
+
+  const date = jour ? new Date(jour) : null;
+  const dateCompatible = jourActuel === null || jourActuel === jour;
+  if (dateCompatible && ((await calculerStocks(transaction, [medicamentId])).get(medicamentId) ?? 0) <= 0) {
+    await transaction.medicament.update({ where: { id: medicamentId }, data: { datePeremption: date, prixAchat } });
     return medicamentId;
   }
-  const memeDate = await transaction.medicament.findFirst({
+  const identique = await transaction.medicament.findFirst({
     where: {
       actif: true,
       nom: { equals: medicament.nom, mode: "insensitive" },
       forme: medicament.forme,
       categorieId: medicament.categorieId,
+      prixVente: medicament.prixVente,
       datePeremption: date,
+      prixAchat,
     },
     select: { id: true },
   });
-  if (memeDate) return memeDate.id;
+  if (identique) return identique.id;
   const nouvelle = await transaction.medicament.create({
     data: {
       nom: medicament.nom,
       forme: medicament.forme,
       categorieId: medicament.categorieId,
-      prixAchat: medicament.prixAchat,
+      prixAchat,
       prixVente: medicament.prixVente,
       seuilAlerte: medicament.seuilAlerte,
       datePeremption: date,

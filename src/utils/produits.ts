@@ -7,6 +7,15 @@ export function cleProduit(medicament: { nom: string; forme: string; categorieId
   return `${nom}|${medicament.forme}|${medicament.categorieId}`;
 }
 
+/** Un arrivage rejoint une ligne de stock seulement si elle a la même date de péremption et le même prix d'achat. */
+export function memeLigneDeStock(
+  ligne: { datePeremption: Date | null; prixAchat: number },
+  jourPeremption: string | null,
+  prixAchat: number,
+): boolean {
+  return (ligne.datePeremption?.toISOString().slice(0, 10) ?? null) === jourPeremption && ligne.prixAchat === prixAchat;
+}
+
 /** Produits disponibles : lignes avec du stock (non périmées, filtrées par l'appelant), comptées une fois par produit. */
 export function compterProduitsDisponibles(
   medicaments: readonly { nom: string; forme: string; categorieId: number; stock: number }[],
