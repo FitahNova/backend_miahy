@@ -22,6 +22,8 @@ const schemaListe = z.object({
   liste: z.enum(["a-contacter", "en-retard", "perdus-de-vue", "historique"]).default("a-contacter"),
   page: z.coerce.number().int().min(1).default(1),
   taille: z.coerce.number().int().min(1).max(TAILLE_PAGE_MAXIMALE).default(TAILLE_PAGE),
+  du: z.iso.date().optional(),
+  au: z.iso.date().optional(),
 });
 
 const schemaSuivi = z
@@ -63,11 +65,11 @@ function lireUtilisateur(requete: Request) {
   return { id: Number(requete.utilisateur.id), role: requete.utilisateur.role };
 }
 
-/** GET /api/suivis?liste=a-contacter|en-retard|perdus-de-vue|historique */
+/** GET /api/suivis?liste=a-contacter|en-retard|perdus-de-vue|historique ; historique : du et au (AAAA-MM-JJ, facultatifs) */
 export async function lister(requete: Request, reponse: Response) {
-  const { liste, page, taille } = schemaListe.parse(requete.query);
+  const { liste, page, taille, du, au } = schemaListe.parse(requete.query);
   // { suivis, total, page, taille } : 10 par page.
-  reponse.json(await listerSuivis(liste, lireUtilisateur(requete), page, taille));
+  reponse.json(await listerSuivis(liste, lireUtilisateur(requete), page, taille, { du, au }));
 }
 
 /** GET /api/suivis/compteurs */

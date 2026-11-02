@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { bornesListe, classerSuivi, decalerJour, jourDuCentre, joursDeRetard, typeDepuisMotif } from "./suivis.js";
+import { bornesPeriode, bornesListe, classerSuivi, decalerJour, jourDuCentre, joursDeRetard, typeDepuisMotif } from "./suivis.js";
 
 const AUJOURDHUI = "2026-10-20";
 
@@ -52,5 +52,19 @@ describe("Suivi et rappels : type d'après le motif", () => {
 
   it("met « Autre » quand aucun type ne correspond", () => {
     assert.equal(typeDepuisMotif("Malaise", TYPES), "Autre");
+  });
+});
+
+describe("Période de l'historique", () => {
+  it("compte les deux jours en entier, au fuseau du centre", () => {
+    const { gte, lt } = bornesPeriode({ du: "2026-10-30", au: "2026-10-30" });
+    assert.equal(gte?.toISOString(), "2026-10-29T21:00:00.000Z");
+    assert.equal(lt?.toISOString(), "2026-10-30T21:00:00.000Z");
+  });
+
+  it("n'impose rien sans date", () => {
+    assert.deepEqual(bornesPeriode({}), {});
+    assert.equal(bornesPeriode({ du: "2026-10-30" }).lt, undefined);
+    assert.equal(bornesPeriode({ au: "2026-10-30" }).gte, undefined);
   });
 });

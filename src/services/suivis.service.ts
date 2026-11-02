@@ -10,7 +10,7 @@ import {
   type Prisma,
 } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
-import { bornesListe, classerSuivi, decalerJour, jourDuCentre, joursDeRetard, typeDepuisMotif, type ListeSuivi } from "../utils/suivis.js";
+import { bornesListe, bornesPeriode, classerSuivi, decalerJour, jourDuCentre, joursDeRetard, typeDepuisMotif, type ListeSuivi } from "../utils/suivis.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { coordonneesVisibles } from "./patients.service.js";
@@ -116,11 +116,12 @@ export async function listerSuivis(
   utilisateur: UtilisateurConnecte,
   page = 1,
   taille = TAILLE_PAGE,
+  periode: { du?: string; au?: string } = {},
 ) {
   const aujourdhui = jourDuCentre();
   const historique = liste === "historique";
   if (historique) {
-    const where: Prisma.ContactSuiviWhereInput = {};
+    const where: Prisma.ContactSuiviWhereInput = periode.du || periode.au ? { date: bornesPeriode(periode) } : {};
     const [contacts, total] = await prisma.$transaction([
       prisma.contactSuivi.findMany({
         where,

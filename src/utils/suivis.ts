@@ -33,6 +33,14 @@ export function classerSuivi(echeance: string, aujourdhui: string, manque = fals
   return "perdus-de-vue";
 }
 
+/** Période de l'historique, jours inclus, au fuseau du centre : du début du premier jour au début du lendemain du dernier. */
+export function bornesPeriode({ du, au }: { du?: string; au?: string }): { gte?: Date; lt?: Date } {
+  return {
+    ...(du ? { gte: new Date(`${du}T00:00:00+03:00`) } : {}),
+    ...(au ? { lt: new Date(`${decalerJour(au, 1)}T00:00:00+03:00`) } : {}),
+  };
+}
+
 /** Bornes d'échéance (jours inclus) d'une liste, pour filtrer en base. */
 export function bornesListe(liste: ListeSuivi, aujourdhui: string): { du?: string; au?: string } {
   if (liste === "a-contacter") return { du: aujourdhui, au: decalerJour(aujourdhui, JOURS_AVANT_A_CONTACTER) };
