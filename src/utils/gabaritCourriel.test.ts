@@ -18,8 +18,9 @@ describe("Gabarit des courriels", () => {
   });
 
   it("n'ajoute jamais de HTML venu du nom", () => {
-    const html = gabaritLien({ ...lien, nom: "<script>alert(1)</script>" });
-    assert.equal(html.includes("<script>"), false);
+    const courriel = gabaritLien({ ...lien, nom: "<b>Test</b>" });
+    assert.ok(courriel.includes("&lt;b&gt;Test&lt;/b&gt;"));
+    assert.equal(courriel.includes("<b>Test"), false);
     assert.equal(gabaritCode("<b>Test</b>", "123456", 10, lien.urlLogo).includes("<b>Test"), false);
   });
 
