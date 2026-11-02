@@ -3,6 +3,7 @@ import { StatutFacture, TypeLigneFacture } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { lireActes } from "./consultations.service.js";
 import { journaliserAcces } from "./journal.service.js";
+import { LIGNES_DU_STOCK } from "../utils/lignesDuStock.js";
 import { calculerStocks } from "./medicaments.service.js";
 import { prochainRendezVousDuPatient } from "./rendezVous.service.js";
 
@@ -114,9 +115,9 @@ export async function obtenirBonDeDelivrance(passageId: number) {
       patient: { select: { numeroDossier: true, nom: true, prenom: true } },
       ordonnance: {
         select: {
-          // Le bon de délivrance ne contient que les médicaments du stock du centre.
+          // Le bon de délivrance ne contient que les médicaments à délivrer par le centre.
           lignes: {
-            where: { medicamentId: { not: null } },
+            where: LIGNES_DU_STOCK,
             orderBy: { id: "asc" },
             select: {
               id: true,

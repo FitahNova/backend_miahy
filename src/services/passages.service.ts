@@ -1,3 +1,4 @@
+import { LIGNES_DU_STOCK } from "../utils/lignesDuStock.js";
 import { prisma } from "../config/prisma.js";
 import { SEUIL_ATTENTE_LONGUE_MINUTES, SOIGNANTS } from "../config/constants.js";
 import { Orientation, Role, StatutPassage } from "../generated/prisma/client.js";
@@ -278,10 +279,10 @@ export async function terminerPassageDansTransaction(
 ) {
   const passage = await transaction.passage.findUnique({
     where: { id: passageId },
-    // Seuls les médicaments du stock passent à la pharmacie ; une ordonnance hors stock seulement va en caisse.
+    // Seuls les médicaments à délivrer passent à la pharmacie ; sinon le patient va directement en caisse.
     select: {
       patientId: true,
-      ordonnance: { select: { lignes: { where: { medicamentId: { not: null } }, select: { id: true }, take: 1 } } },
+      ordonnance: { select: { lignes: { where: LIGNES_DU_STOCK, select: { id: true }, take: 1 } } },
     },
   });
   if (!passage) {

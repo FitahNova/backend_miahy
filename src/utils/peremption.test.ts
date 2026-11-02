@@ -22,23 +22,29 @@ describe("Péremption des médicaments", () => {
 describe("Alertes de stock de la cloche", () => {
   const jour = (texte: string) => new Date(`${texte}T00:00:00.000Z`);
   const AUJOURDHUI = "2026-10-23";
-  const produit = (stock: number, seuilAlerte: number, datePeremption: Date | null = null) => ({ stock, seuilAlerte, datePeremption });
+  const produit = (stock: number, seuilAlerte: number, datePeremption: Date | null = null, prixVente = 100) => ({ stock, seuilAlerte, datePeremption, prixVente });
 
   it("ne compte jamais un périmé, avec ou sans stock", () => {
-    assert.deepEqual(compterAlertesStock([produit(3, 5, jour("2026-10-01"))], AUJOURDHUI), { proches: 0, ruptures: 0, sousSeuil: 0 });
-    assert.deepEqual(compterAlertesStock([produit(0, 5, jour("2026-10-01"))], AUJOURDHUI), { proches: 0, ruptures: 0, sousSeuil: 0 });
+    assert.deepEqual(compterAlertesStock([produit(3, 5, jour("2026-10-01"))], AUJOURDHUI), { proches: 0, ruptures: 0, sousSeuil: 0, sansPrix: 0 });
+    assert.deepEqual(compterAlertesStock([produit(0, 5, jour("2026-10-01"))], AUJOURDHUI), { proches: 0, ruptures: 0, sousSeuil: 0, sansPrix: 0 });
   });
 
   it("sépare la rupture du sous le seuil, seuil compris", () => {
-    assert.deepEqual(compterAlertesStock([produit(0, 5), produit(5, 5), produit(6, 5)], AUJOURDHUI), { proches: 0, ruptures: 1, sousSeuil: 1 });
+    assert.deepEqual(compterAlertesStock([produit(0, 5), produit(5, 5), produit(6, 5)], AUJOURDHUI), { proches: 0, ruptures: 1, sousSeuil: 1, sansPrix: 0 });
   });
 
   it("compte un produit proche de péremption et sous le seuil dans les deux alertes", () => {
-    assert.deepEqual(compterAlertesStock([produit(2, 5, jour("2026-12-01"))], AUJOURDHUI), { proches: 1, ruptures: 0, sousSeuil: 1 });
+    assert.deepEqual(compterAlertesStock([produit(2, 5, jour("2026-12-01"))], AUJOURDHUI), { proches: 1, ruptures: 0, sousSeuil: 1, sansPrix: 0 });
+  });
+
+  it("signale un produit en stock dont le prix de vente est à fixer, pas s'il est vide ou périmé", () => {
+    assert.equal(compterAlertesStock([produit(10, 5, null, 0)], AUJOURDHUI).sansPrix, 1);
+    assert.equal(compterAlertesStock([produit(0, 5, null, 0)], AUJOURDHUI).sansPrix, 0);
+    assert.equal(compterAlertesStock([produit(10, 5, jour("2026-10-01"), 0)], AUJOURDHUI).sansPrix, 0);
   });
 
   it("ne compte pas comme proche un produit sans stock", () => {
-    assert.deepEqual(compterAlertesStock([produit(0, 5, jour("2026-12-01"))], AUJOURDHUI), { proches: 0, ruptures: 1, sousSeuil: 0 });
+    assert.deepEqual(compterAlertesStock([produit(0, 5, jour("2026-12-01"))], AUJOURDHUI), { proches: 0, ruptures: 1, sousSeuil: 0, sansPrix: 0 });
   });
 });
 

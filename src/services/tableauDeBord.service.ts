@@ -179,7 +179,7 @@ export async function obtenirAlertes(role: Role) {
   }
 
   if (ROLES_ALERTE_STOCK.includes(role)) {
-    const medicaments = await prisma.medicament.findMany({ where: { actif: true }, select: { id: true, seuilAlerte: true, datePeremption: true } });
+    const medicaments = await prisma.medicament.findMany({ where: { actif: true }, select: { id: true, seuilAlerte: true, datePeremption: true, prixVente: true } });
     const stocks = await calculerStocks(prisma, medicaments.map((medicament) => medicament.id));
     const compte = compterAlertesStock(medicaments.map((medicament) => ({ ...medicament, stock: stocks.get(medicament.id) ?? 0 })));
     const ajouter = (cle: string, nombre: number, singulier: string, pluriel: string, onglet: string, gravite: "erreur" | "avertissement") => {
@@ -188,6 +188,10 @@ export async function obtenirAlertes(role: Role) {
     ajouter("ruptures", compte.ruptures, "médicament en rupture", "médicaments en rupture", "rupture", "erreur");
     ajouter("proches", compte.proches, `médicament périme dans les ${JOURS_ALERTE_PEREMPTION} jours`, `médicaments périment dans les ${JOURS_ALERTE_PEREMPTION} jours`, "proches", "avertissement");
     ajouter("seuil", compte.sousSeuil, "médicament sous le seuil d'alerte", "médicaments sous le seuil d'alerte", "rupture", "avertissement");
+    // Seule la Direction fixe les prix.
+    if (role === Role.DIRECTION) {
+      ajouter("sansPrix", compte.sansPrix, "médicament en stock sans prix de vente", "médicaments en stock sans prix de vente", "stock", "erreur");
+    }
   }
 
   if (finances(role)) {

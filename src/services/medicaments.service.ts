@@ -483,7 +483,8 @@ export async function rechercherPourPrescripteur(terme: string) {
 
 export async function rechercherPourComptoir(terme: string) {
   const medicaments = await prisma.medicament.findMany({
-    where: { actif: true, nom: { contains: terme.trim(), mode: "insensitive" } },
+    // Prix de vente à fixer : comme s'il n'était pas au comptoir.
+    where: { actif: true, prixVente: { gt: 0 }, nom: { contains: terme.trim(), mode: "insensitive" } },
     select: { id: true, nom: true, forme: true, prixVente: true, datePeremption: true },
     orderBy: { nom: "asc" },
     take: LIMITE_RECHERCHE,

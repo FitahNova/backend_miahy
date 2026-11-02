@@ -2,6 +2,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../config/prisma.js";
 import { StatutFacture, StatutPassage, TypeLigneFacture, TypeMouvement } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
+import { LIGNES_DU_STOCK } from "../utils/lignesDuStock.js";
 import { estPerime } from "../utils/peremption.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
@@ -30,8 +31,6 @@ export type AjoutHorsOrdonnance = {
   quantite: number;
 };
 
-// Lignes d'ordonnance du stock du centre : un médicament hors stock (prescription seule) ne passe pas au comptoir.
-const LIGNES_DU_STOCK = { medicamentId: { not: null } } as const;
 type LigneDuStock<T> = T & { medicament: NonNullable<T extends { medicament: infer M } ? M : never> } & (T extends {
   medicamentId: unknown;
 }
@@ -183,7 +182,8 @@ async function choisirFactureCible(tx: Prisma.TransactionClient, passage: { id: 
  * chaque sortie de stock est reliée à sa ligne de facture (écriture inverse exacte en cas de retrait).
  * Une délivrance « vide » est permise : le patient refuse les médicaments, la facture passe à payer.
  * @throws 404 PASSAGE_INTROUVABLE, 409 PASSAGE_NON_SERVI, 400 LIGNE_ORDONNANCE_INVALIDE,
- *         400 QUANTITE_SUPERIEURE_AU_RESTE, 404 MEDICAMENT_INTROUVABLE, 409 STOCK_INSUFFISANT, 409 MEDICAMENT_PERIME
+ *         400 QUANTITE_SUPERIEURE_AU_RESTE, 404 MEDICAMENT_INTROUVABLE, 409 STOCK_INSUFFISANT, 409 MEDICAMENT_PERIME,
+ *         409 PRIX_MEDICAMENT_A_FIXER
  */
 export async function delivrerAuComptoir(
   passageId: number,
@@ -237,10 +237,15 @@ export async function delivrerAuComptoir(
     await verrouillerMedicaments(tx, medicamentIds);
 
     // Un médicament périmé ne se délivre ni ne se vend, prescrit ou ajouté au comptoir.
-    const perime = (
-      await tx.medicament.findMany({ where: { id: { in: medicamentIds } }, select: { nom: true, datePeremption: true } })
-    ).find((medicament) => estPerime(medicament.datePeremption));
+    const aSortir = await tx.medicament.findMany({
+      where: { id: { in: medicamentIds } },
+      select: { nom: true, datePeremption: true, prixVente: true },
+    });
+    const perime = aSortir.find((medicament) => estPerime(medicament.datePeremption));
     if (perime) throw new ErreurHttp(409, "MEDICAMENT_PERIME", { medicament: perime.nom });
+    // Prix de vente à fixer : rien ne sort du stock, même si le médicament est présent.
+    const sansPrix = aSortir.find((medicament) => medicament.prixVente <= 0);
+    if (sansPrix) throw new ErreurHttp(409, "PRIX_MEDICAMENT_A_FIXER", { medicament: sansPrix.nom });
 
     const stocks = await calculerStocks(tx, medicamentIds);
     for (const [medicamentId, quantite] of besoin) {

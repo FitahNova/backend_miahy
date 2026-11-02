@@ -21,17 +21,18 @@ export function estProcheDePeremption(datePeremption: Date | null, aujourdhui: s
  * Rupture et sous le seuil : même règle que l'onglet « Rupture et alerte » (R067).
  */
 export function compterAlertesStock(
-  produits: readonly { stock: number; seuilAlerte: number; datePeremption: Date | null }[],
+  produits: readonly { stock: number; seuilAlerte: number; datePeremption: Date | null; prixVente: number }[],
   aujourdhui: string = jourDuCentre(),
 ) {
-  const compte = { proches: 0, ruptures: 0, sousSeuil: 0 };
-  for (const { stock, seuilAlerte, datePeremption } of produits) {
+  const compte = { proches: 0, ruptures: 0, sousSeuil: 0, sansPrix: 0 };
+  for (const { stock, seuilAlerte, datePeremption, prixVente } of produits) {
     if (estPerime(datePeremption, aujourdhui)) continue;
     if (stock <= 0) {
       compte.ruptures += 1;
     } else {
       if (estProcheDePeremption(datePeremption, aujourdhui)) compte.proches += 1;
       if (stock <= seuilAlerte) compte.sousSeuil += 1;
+      if (prixVente <= 0) compte.sansPrix += 1;
     }
   }
   return compte;
