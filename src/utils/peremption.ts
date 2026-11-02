@@ -17,18 +17,17 @@ export function estProcheDePeremption(datePeremption: Date | null, aujourdhui: s
 }
 
 /**
- * Compteurs de la cloche. Un périmé ne compte que s'il reste du stock à retirer, et il n'est ni en rupture
- * ni sous le seuil. Rupture et sous le seuil : même règle que l'onglet « Rupture et alerte » (R067).
+ * Compteurs de la cloche. Un périmé ne compte pas : il sort du stock et passe dans l'onglet « Périmés ».
+ * Rupture et sous le seuil : même règle que l'onglet « Rupture et alerte » (R067).
  */
 export function compterAlertesStock(
   produits: readonly { stock: number; seuilAlerte: number; datePeremption: Date | null }[],
   aujourdhui: string = jourDuCentre(),
 ) {
-  const compte = { perimes: 0, proches: 0, ruptures: 0, sousSeuil: 0 };
+  const compte = { proches: 0, ruptures: 0, sousSeuil: 0 };
   for (const { stock, seuilAlerte, datePeremption } of produits) {
-    if (estPerime(datePeremption, aujourdhui)) {
-      if (stock > 0) compte.perimes += 1;
-    } else if (stock <= 0) {
+    if (estPerime(datePeremption, aujourdhui)) continue;
+    if (stock <= 0) {
       compte.ruptures += 1;
     } else {
       if (estProcheDePeremption(datePeremption, aujourdhui)) compte.proches += 1;

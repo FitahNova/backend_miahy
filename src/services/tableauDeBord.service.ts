@@ -185,7 +185,6 @@ export async function obtenirAlertes(role: Role) {
     const ajouter = (cle: string, nombre: number, singulier: string, pluriel: string, onglet: string, gravite: "erreur" | "avertissement") => {
       if (nombre) alertes.push({ cle, nombre, libelle: nombre > 1 ? pluriel : singulier, lien: `/medicaments?onglet=${onglet}`, gravite });
     };
-    ajouter("perimes", compte.perimes, "médicament périmé encore en stock", "médicaments périmés encore en stock", "perimes", "erreur");
     ajouter("ruptures", compte.ruptures, "médicament en rupture", "médicaments en rupture", "rupture", "erreur");
     ajouter("proches", compte.proches, `médicament périme dans les ${JOURS_ALERTE_PEREMPTION} jours`, `médicaments périment dans les ${JOURS_ALERTE_PEREMPTION} jours`, "proches", "avertissement");
     ajouter("seuil", compte.sousSeuil, "médicament sous le seuil d'alerte", "médicaments sous le seuil d'alerte", "rupture", "avertissement");
