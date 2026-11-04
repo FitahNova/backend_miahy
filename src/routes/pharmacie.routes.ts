@@ -27,10 +27,8 @@ routeur.post("/passage/:passageId/delivrance", exigerRole(Role.SECRETAIRE), gere
 // Retrait d'un ajout hors ordonnance, tant que sa facture n'a reçu aucun paiement.
 routeur.delete("/lignes-facture/:ligneId", exigerRole(Role.SECRETAIRE), gererAsync(retirerLigne));
 
-// Documents imprimables (données JSON, mises en page côté front).
-// L'ordonnance s'imprime par les prescripteurs et par la secrétaire (copie remise au patient à l'accueil ;
-// décision du 28/10/2026). Sa saisie et sa modification restent réservées aux prescripteurs (ordonnances.routes.ts).
-routeur.get("/impression/ordonnance/:passageId", exigerRole(...SOIGNANTS, Role.SECRETAIRE), gererAsync(imprimerOrdonnance));
+// Documents imprimables (données JSON, mises en page côté front). L'ordonnance est réservée aux soignants.
+routeur.get("/impression/ordonnance/:passageId", exigerRole(...SOIGNANTS), gererAsync(imprimerOrdonnance));
 routeur.get(
   "/impression/bon/:passageId",
   exigerRole(Role.SECRETAIRE, Role.DIRECTION),
