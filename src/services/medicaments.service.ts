@@ -3,7 +3,7 @@ import { Prisma, TypeMouvement } from "../generated/prisma/client.js";
 import { TAILLE_PAGE } from "../config/constants.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { estPerime, estProcheDePeremption, observationInventaire } from "../utils/peremption.js";
-import { compterProduitsDisponibles, memeLigneDeStock } from "../utils/produits.js";
+import { compterProduitsDisponibles, contenuSelonForme, memeLigneDeStock, uniteDeVente } from "../utils/produits.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 
@@ -16,7 +16,6 @@ export const FORMES_MEDICAMENT = [
   "gélule",
   "sachet",
   "sirop",
-  "suspension",
   "pommade",
   "injectable",
   "suppositoire",
@@ -34,6 +33,7 @@ const selectionMedicament = {
   seuilAlerte: true,
   datePeremption: true,
   actif: true,
+  contenuConditionnement: true,
   categorie: { select: { id: true, nom: true } },
 } as const;
 
@@ -45,6 +45,8 @@ export interface DonneesMedicament {
   prixVente: number;
   seuilAlerte: number;
   datePeremption?: string | null;
+  /** Comprimés par plaquette (comprimé, gélule) ; 1 pour les autres formes. */
+  contenuConditionnement?: number;
 }
 
 export interface DonneesModificationMedicament extends Partial<DonneesMedicament> {
@@ -176,6 +178,7 @@ export async function creerMedicament(donnees: DonneesMedicament, auteurId: numb
         prixVente: donnees.prixVente,
         seuilAlerte: donnees.seuilAlerte,
         datePeremption: donnees.datePeremption ? new Date(donnees.datePeremption) : null,
+        contenuConditionnement: contenuSelonForme(donnees.forme, donnees.contenuConditionnement),
         actif: true,
       },
       select: selectionMedicament,
@@ -201,6 +204,7 @@ export async function creerMedicament(donnees: DonneesMedicament, auteurId: numb
 export async function ajouterAuStock(donnees: DonneesMedicament & { quantite: number }, auteurId: number) {
   await verifierCategorie(donnees.categorieId);
   const datePeremption = donnees.datePeremption ? new Date(donnees.datePeremption) : null;
+  const contenuConditionnement = contenuSelonForme(donnees.forme, donnees.contenuConditionnement);
 
   return prisma.$transaction(async (transaction) => {
     const identique = await transaction.medicament.findFirst({
@@ -212,6 +216,7 @@ export async function ajouterAuStock(donnees: DonneesMedicament & { quantite: nu
         prixAchat: donnees.prixAchat,
         prixVente: donnees.prixVente,
         datePeremption,
+        contenuConditionnement,
       },
       select: { id: true },
     });
@@ -227,6 +232,7 @@ export async function ajouterAuStock(donnees: DonneesMedicament & { quantite: nu
             prixVente: donnees.prixVente,
             seuilAlerte: donnees.seuilAlerte,
             datePeremption,
+            contenuConditionnement,
             actif: true,
           },
           select: selectionMedicament,
@@ -263,7 +269,7 @@ const CATEGORIE_A_CLASSER = "À classer";
  * Création rapide depuis l'approvisionnement : nom et forme seulement.
  * Catégorie « À classer » (créée au besoin), prix et seuil à 0, à compléter ensuite dans la fiche.
  */
-export async function creerMedicamentRapide(nom: string, forme: string, auteurId: number) {
+export async function creerMedicamentRapide(nom: string, forme: string, auteurId: number, contenu?: number) {
   return prisma.$transaction(async (transaction) => {
     const categorie = await transaction.categorieMedicament.upsert({
       where: { nom: CATEGORIE_A_CLASSER },
@@ -272,7 +278,16 @@ export async function creerMedicamentRapide(nom: string, forme: string, auteurId
       select: { id: true },
     });
     const medicament = await transaction.medicament.create({
-      data: { nom, forme, categorieId: categorie.id, prixAchat: 0, prixVente: 0, seuilAlerte: 0, actif: true },
+      data: {
+        nom,
+        forme,
+        categorieId: categorie.id,
+        prixAchat: 0,
+        prixVente: 0,
+        seuilAlerte: 0,
+        contenuConditionnement: contenuSelonForme(forme, contenu),
+        actif: true,
+      },
       select: selectionMedicament,
     });
     await enregistrerAudit(transaction, {
@@ -307,6 +322,7 @@ export async function creerMedicamentsEnLot(liste: DonneesMedicament[], auteurId
           prixVente: donnees.prixVente,
           seuilAlerte: donnees.seuilAlerte,
           datePeremption: donnees.datePeremption ? new Date(donnees.datePeremption) : null,
+          contenuConditionnement: contenuSelonForme(donnees.forme, donnees.contenuConditionnement),
           actif: true,
         },
         select: selectionMedicament,
@@ -328,11 +344,41 @@ export async function creerMedicamentsEnLot(liste: DonneesMedicament[], auteurId
 export async function modifierMedicament(id: number, donnees: DonneesModificationMedicament, auteurId: number) {
   const existant = await prisma.medicament.findUnique({
     where: { id },
-    select: { id: true, prixAchat: true, prixVente: true },
+    select: {
+      id: true,
+      prixAchat: true,
+      prixVente: true,
+      forme: true,
+      contenuConditionnement: true,
+      _count: {
+        select: {
+          mouvements: { where: { type: { in: [TypeMouvement.SORTIE, TypeMouvement.RETOUR] } } },
+          lignesOrdonnance: true,
+          lignesFacture: true,
+        },
+      },
+    },
   });
   if (!existant) {
     throw new ErreurHttp(404, "MEDICAMENT_INTROUVABLE");
   }
+
+  // Le stock et les prix sont comptés dans l'unité de vente. Tant que le produit n'a été ni délivré, ni vendu,
+  // ni prescrit, une erreur de saisie se corrige (type, contenu) ; ensuite, l'historique des patients l'interdit.
+  const dejaUtilise = existant._count.mouvements + existant._count.lignesOrdonnance + existant._count.lignesFacture > 0;
+  const forme = donnees.forme ?? existant.forme;
+  const contenuConditionnement =
+    donnees.forme !== undefined || donnees.contenuConditionnement !== undefined
+      ? contenuSelonForme(forme, donnees.contenuConditionnement ?? existant.contenuConditionnement)
+      : undefined;
+  const contenuRetenu = contenuConditionnement ?? existant.contenuConditionnement;
+  if (dejaUtilise && uniteDeVente(forme, contenuRetenu) !== uniteDeVente(existant.forme, existant.contenuConditionnement)) {
+    throw new ErreurHttp(409, "TYPE_NON_MODIFIABLE", { unite: uniteDeVente(existant.forme, existant.contenuConditionnement) });
+  }
+  if (dejaUtilise && contenuRetenu !== existant.contenuConditionnement) {
+    throw new ErreurHttp(409, "CONTENU_NON_MODIFIABLE");
+  }
+  const typeModifie = forme !== existant.forme || contenuRetenu !== existant.contenuConditionnement;
 
   const prixAchatModifie = donnees.prixAchat !== undefined && donnees.prixAchat !== existant.prixAchat;
   const prixVenteModifie = donnees.prixVente !== undefined && donnees.prixVente !== existant.prixVente;
@@ -353,6 +399,7 @@ export async function modifierMedicament(id: number, donnees: DonneesModificatio
     ...(donnees.prixAchat !== undefined ? { prixAchat: donnees.prixAchat } : {}),
     ...(donnees.prixVente !== undefined ? { prixVente: donnees.prixVente } : {}),
     ...(donnees.seuilAlerte !== undefined ? { seuilAlerte: donnees.seuilAlerte } : {}),
+    ...(contenuConditionnement !== undefined ? { contenuConditionnement } : {}),
     ...(donnees.datePeremption !== undefined
       ? { datePeremption: donnees.datePeremption ? new Date(donnees.datePeremption) : null }
       : {}),
@@ -376,6 +423,22 @@ export async function modifierMedicament(id: number, donnees: DonneesModificatio
           nouveauPrixAchat: medicament.prixAchat,
           ancienPrixVente: existant.prixVente,
           nouveauPrixVente: medicament.prixVente,
+        },
+      });
+    }
+
+    // Correction du type ou du contenu : tracée, le stock restant compté dans la nouvelle unité.
+    if (typeModifie) {
+      await enregistrerAudit(transaction, {
+        utilisateurId: auteurId,
+        action: "MODIFICATION_TYPE_MEDICAMENT",
+        entite: "medicament",
+        entiteId: id,
+        detail: {
+          ancienneForme: existant.forme,
+          nouvelleForme: medicament.forme,
+          ancienContenu: existant.contenuConditionnement,
+          nouveauContenu: medicament.contenuConditionnement,
         },
       });
     }
@@ -467,7 +530,7 @@ export async function listerMouvementsDuMedicament(id: number, page = 1, taille 
 export async function rechercherPourPrescripteur(terme: string) {
   const medicaments = await prisma.medicament.findMany({
     where: { actif: true, nom: { contains: terme.trim(), mode: "insensitive" } },
-    select: { id: true, nom: true, forme: true, datePeremption: true, categorie: { select: { nom: true } } },
+    select: { id: true, nom: true, forme: true, datePeremption: true, contenuConditionnement: true, categorie: { select: { nom: true } } },
     orderBy: { nom: "asc" },
     take: LIMITE_RECHERCHE,
   });
@@ -477,6 +540,7 @@ export async function rechercherPourPrescripteur(terme: string) {
     nom: medicament.nom,
     forme: medicament.forme,
     categorie: medicament.categorie.nom,
+    contenuConditionnement: medicament.contenuConditionnement,
     perime: estPerime(medicament.datePeremption),
   }));
 }
@@ -485,7 +549,7 @@ export async function rechercherPourComptoir(terme: string) {
   const medicaments = await prisma.medicament.findMany({
     // Prix de vente à fixer : comme s'il n'était pas au comptoir.
     where: { actif: true, prixVente: { gt: 0 }, nom: { contains: terme.trim(), mode: "insensitive" } },
-    select: { id: true, nom: true, forme: true, prixVente: true, datePeremption: true },
+    select: { id: true, nom: true, forme: true, prixVente: true, datePeremption: true, contenuConditionnement: true },
     orderBy: { nom: "asc" },
     take: LIMITE_RECHERCHE,
   });
@@ -495,6 +559,7 @@ export async function rechercherPourComptoir(terme: string) {
     nom: medicament.nom,
     forme: medicament.forme,
     prixVente: medicament.prixVente,
+    contenuConditionnement: medicament.contenuConditionnement,
     disponible: (stocks.get(medicament.id) ?? 0) > 0,
     perime: estPerime(medicament.datePeremption),
   }));
@@ -802,7 +867,16 @@ async function ligneDeStockDeLArrivage(
 ) {
   const medicament = await transaction.medicament.findUniqueOrThrow({
     where: { id: medicamentId },
-    select: { nom: true, forme: true, categorieId: true, prixAchat: true, prixVente: true, seuilAlerte: true, datePeremption: true },
+    select: {
+      nom: true,
+      forme: true,
+      categorieId: true,
+      prixAchat: true,
+      prixVente: true,
+      seuilAlerte: true,
+      datePeremption: true,
+      contenuConditionnement: true,
+    },
   });
   const jourActuel = medicament.datePeremption?.toISOString().slice(0, 10) ?? null;
   const jour = datePeremption ?? jourActuel;
@@ -821,6 +895,7 @@ async function ligneDeStockDeLArrivage(
       forme: medicament.forme,
       categorieId: medicament.categorieId,
       prixVente: medicament.prixVente,
+      contenuConditionnement: medicament.contenuConditionnement,
       datePeremption: date,
       prixAchat,
     },
@@ -835,6 +910,7 @@ async function ligneDeStockDeLArrivage(
       prixAchat,
       prixVente: medicament.prixVente,
       seuilAlerte: medicament.seuilAlerte,
+      contenuConditionnement: medicament.contenuConditionnement,
       datePeremption: date,
       actif: true,
     },

@@ -3,6 +3,7 @@ import { prisma } from "../config/prisma.js";
 import { StatutFacture, StatutPassage, TypeLigneFacture, TypeMouvement } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { LIGNES_DU_STOCK } from "../utils/lignesDuStock.js";
+import { unitesADelivrer } from "../utils/produits.js";
 import { estPerime } from "../utils/peremption.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
@@ -77,7 +78,7 @@ export async function listerPassagesAuComptoir() {
               id: true,
               quantitePrescrite: true,
               quantiteDelivree: true,
-              medicament: { select: { id: true, nom: true, forme: true, prixVente: true, datePeremption: true } },
+              medicament: { select: { id: true, nom: true, forme: true, prixVente: true, datePeremption: true, contenuConditionnement: true } },
             },
           },
         },
@@ -121,13 +122,15 @@ export async function listerPassagesAuComptoir() {
     // Seulement ce qui reste à délivrer : la secrétaire ne lit pas l'ordonnance complète.
     aDelivrer: (ordonnance?.lignes ?? [])
       .filter(duStock)
-      .filter((ligne) => ligne.quantitePrescrite > ligne.quantiteDelivree)
+      .filter((ligne) => unitesADelivrer(ligne.quantitePrescrite, ligne.medicament.contenuConditionnement) > ligne.quantiteDelivree)
       .map(({ medicament: { datePeremption, ...medicament }, ...ligne }) => ({
         ligneOrdonnanceId: ligne.id,
         medicament,
         // Périmé : la secrétaire le voit grisé et ne peut pas le délivrer.
         perime: estPerime(datePeremption),
-        resteADelivrer: ligne.quantitePrescrite - ligne.quantiteDelivree,
+        // En plaquettes pour le comprimé et la gélule ; comprimés prescrits gardés pour l'affichage.
+        quantitePrescrite: ligne.quantitePrescrite,
+        resteADelivrer: unitesADelivrer(ligne.quantitePrescrite, medicament.contenuConditionnement) - ligne.quantiteDelivree,
         dejaDelivre: ligne.quantiteDelivree,
         stockDisponible: stocks.get(medicament.id) ?? 0,
       })),
@@ -201,7 +204,7 @@ export async function delivrerAuComptoir(
         medicamentId: true,
         quantitePrescrite: true,
         quantiteDelivree: true,
-        medicament: { select: { nom: true, prixAchat: true, prixVente: true } },
+        medicament: { select: { nom: true, prixAchat: true, prixVente: true, contenuConditionnement: true } },
       },
     })).filter(duStock);
     const lignesParId = new Map(lignesOrdonnance.map((ligne) => [ligne.id, ligne]));
@@ -210,7 +213,7 @@ export async function delivrerAuComptoir(
     for (const demande of lignesRetenues) {
       const ligne = lignesParId.get(demande.ligneOrdonnanceId);
       if (!ligne) throw new ErreurHttp(400, "LIGNE_ORDONNANCE_INVALIDE");
-      const reste = ligne.quantitePrescrite - ligne.quantiteDelivree;
+      const reste = unitesADelivrer(ligne.quantitePrescrite, ligne.medicament.contenuConditionnement) - ligne.quantiteDelivree;
       if (demande.quantite > reste) {
         throw new ErreurHttp(400, "QUANTITE_SUPERIEURE_AU_RESTE", { medicament: ligne.medicament.nom, reste });
       }
@@ -334,7 +337,7 @@ export async function delivrerAuComptoir(
 
     const reliquat = await tx.ligneOrdonnance.findMany({
       where: { ordonnance: { passageId }, ...LIGNES_DU_STOCK },
-      select: { quantitePrescrite: true, quantiteDelivree: true, medicament: { select: { nom: true } } },
+      select: { quantitePrescrite: true, quantiteDelivree: true, medicament: { select: { nom: true, contenuConditionnement: true } } },
     });
 
     await enregistrerAudit(tx, {
@@ -359,8 +362,11 @@ export async function delivrerAuComptoir(
       montantAjoute,
       reliquat: reliquat
         .filter(duStock)
-        .filter((ligne) => ligne.quantitePrescrite > ligne.quantiteDelivree)
-        .map((ligne) => ({ medicament: ligne.medicament.nom, reste: ligne.quantitePrescrite - ligne.quantiteDelivree })),
+        .map((ligne) => ({
+          medicament: ligne.medicament.nom,
+          reste: unitesADelivrer(ligne.quantitePrescrite, ligne.medicament.contenuConditionnement) - ligne.quantiteDelivree,
+        }))
+        .filter((ligne) => ligne.reste > 0),
     };
   }, OPTIONS_TRANSACTION);
 }

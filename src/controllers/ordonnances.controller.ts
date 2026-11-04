@@ -9,9 +9,11 @@ const schemaLigne = z
   .object({
     medicamentId: z.number().int().positive().nullish(),
     libelle: z.string().trim().min(2).max(150).nullish(),
-    doseParPrise: z.number().positive().max(99.99),
-    prisesParJour: z.number().int().min(1).max(24),
-    dureeJours: z.number().int().min(1).max(365),
+    // Vides pour pommade, injectable et collyre (le service vérifie selon la forme).
+    doseParPrise: z.number().positive().max(99.99).nullish(),
+    prisesParJour: z.number().int().min(1).max(24).nullish(),
+    dureeJours: z.number().int().min(1).max(365).nullish(),
+    quantite: z.number().int().min(1).max(999).nullish(),
     instruction: z.string().trim().max(255).nullish(),
   })
   .refine((ligne) => Boolean(ligne.medicamentId) !== Boolean(ligne.libelle), {

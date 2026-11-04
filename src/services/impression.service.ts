@@ -4,6 +4,7 @@ import { ErreurHttp } from "../utils/errors.js";
 import { lireActes } from "./consultations.service.js";
 import { journaliserAcces } from "./journal.service.js";
 import { LIGNES_DU_STOCK } from "../utils/lignesDuStock.js";
+import { unitesADelivrer } from "../utils/produits.js";
 import { calculerStocks } from "./medicaments.service.js";
 import { prochainRendezVousDuPatient } from "./rendezVous.service.js";
 
@@ -54,7 +55,7 @@ export async function obtenirDonneesOrdonnance(passageId: number, utilisateurId:
               quantitePrescrite: true,
               instruction: true,
               libelle: true,
-              medicament: { select: { nom: true, forme: true } },
+              medicament: { select: { nom: true, forme: true, contenuConditionnement: true } },
             },
           },
         },
@@ -96,8 +97,8 @@ export async function obtenirDonneesOrdonnance(passageId: number, utilisateurId:
     // Médicament hors stock : le nom saisi par le praticien, sans forme.
     lignes: (passage.ordonnance?.lignes ?? []).map(({ libelle, medicament, ...ligne }) => ({
       ...ligne,
-      doseParPrise: Number(ligne.doseParPrise),
-      medicament: medicament ?? { nom: libelle ?? "", forme: "" },
+      doseParPrise: ligne.doseParPrise === null ? null : Number(ligne.doseParPrise),
+      medicament: medicament ?? { nom: libelle ?? "", forme: "", contenuConditionnement: 1 },
       horsStock: medicament === null,
     })),
   };
@@ -124,7 +125,7 @@ export async function obtenirBonDeDelivrance(passageId: number) {
               quantitePrescrite: true,
               quantiteDelivree: true,
               instruction: true,
-              medicament: { select: { id: true, nom: true, forme: true } },
+              medicament: { select: { id: true, nom: true, forme: true, contenuConditionnement: true } },
             },
           },
         },
@@ -164,7 +165,7 @@ export async function obtenirBonDeDelivrance(passageId: number) {
       medicament: ligne.medicament,
       quantitePrescrite: ligne.quantitePrescrite,
       quantiteDelivree: ligne.quantiteDelivree,
-      resteADelivrer: ligne.quantitePrescrite - ligne.quantiteDelivree,
+      resteADelivrer: unitesADelivrer(ligne.quantitePrescrite, ligne.medicament.contenuConditionnement) - ligne.quantiteDelivree,
       stockDisponible: stocks.get(ligne.medicament.id) ?? 0,
       instruction: ligne.instruction,
     })),
@@ -181,6 +182,7 @@ export async function obtenirInventaire() {
       id: true,
       nom: true,
       forme: true,
+      contenuConditionnement: true,
       prixAchat: true,
       prixVente: true,
       seuilAlerte: true,
@@ -200,6 +202,7 @@ export async function obtenirInventaire() {
       id: medicament.id,
       nom: medicament.nom,
       forme: medicament.forme,
+      contenuConditionnement: medicament.contenuConditionnement,
       categorie: medicament.categorie.nom,
       stock,
       seuilAlerte: medicament.seuilAlerte,

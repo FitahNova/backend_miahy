@@ -43,6 +43,8 @@ const schemaMedicament = z.object({
   prixVente: z.number().int().nonnegative(),
   seuilAlerte: z.number().int().nonnegative(),
   datePeremption: z.string().regex(DATE_ISO, "Date attendue : AAAA-MM-JJ").nullish(),
+  // Comprimés par plaquette (comprimé, gélule) ; ignoré pour les autres formes.
+  contenuConditionnement: z.number().int().min(1).max(1000).optional(),
 });
 
 const schemaModification = schemaMedicament.partial().extend({ confirmationPrix: z.boolean().optional() });
@@ -122,12 +124,12 @@ export async function ajouterEnStock(requete: Request, reponse: Response) {
   reponse.status(resultat.fusionne ? 200 : 201).json(resultat);
 }
 
-const schemaMedicamentRapide = schemaMedicament.pick({ nom: true, forme: true });
+const schemaMedicamentRapide = schemaMedicament.pick({ nom: true, forme: true, contenuConditionnement: true });
 
 /** POST /api/medicaments/rapide : produit absent de la liste, créé depuis l'approvisionnement. */
 export async function ajouterMedicamentRapide(requete: Request, reponse: Response) {
-  const { nom, forme } = schemaMedicamentRapide.parse(requete.body);
-  reponse.status(201).json({ medicament: await creerMedicamentRapide(nom, forme, lireAuteur(requete)) });
+  const { nom, forme, contenuConditionnement } = schemaMedicamentRapide.parse(requete.body);
+  reponse.status(201).json({ medicament: await creerMedicamentRapide(nom, forme, lireAuteur(requete), contenuConditionnement) });
 }
 
 // Saisie en tableau : 50 médicaments au plus par envoi.

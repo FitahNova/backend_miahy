@@ -6,6 +6,7 @@ import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { journaliserAcces } from "./journal.service.js";
 import { coordonneesVisibles } from "./patients.service.js";
+import { unitesADelivrer } from "../utils/produits.js";
 
 export interface UtilisateurConsultant {
   id: number;
@@ -34,7 +35,9 @@ const LIBELLES_STATUT_RDV: Record<string, string> = { PREVU: "prévu", VENU: "ve
 const versNombre = (valeur: unknown): number | null =>
   valeur === null || valeur === undefined ? null : Number(valeur);
 
-function posologie(ligne: { doseParPrise: unknown; prisesParJour: number; dureeJours: number }): string {
+function posologie(ligne: { doseParPrise: unknown; prisesParJour: number | null; dureeJours: number | null; instruction: string | null }): string {
+  // Pommade, injectable, collyre : seule l'instruction du médecin.
+  if (ligne.doseParPrise === null || ligne.prisesParJour === null || ligne.dureeJours === null) return ligne.instruction ?? "";
   return `${versNombre(ligne.doseParPrise)} par prise · ${ligne.prisesParJour}/j · ${ligne.dureeJours} j`;
 }
 
@@ -105,8 +108,9 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
                 doseParPrise: true,
                 prisesParJour: true,
                 dureeJours: true,
+                instruction: true,
                 libelle: true,
-                medicament: { select: { nom: true, forme: true } },
+                medicament: { select: { nom: true, forme: true, contenuConditionnement: true } },
               },
             },
           },
@@ -196,7 +200,10 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
                   medicament: ligne.medicament?.nom ?? ligne.libelle ?? "",
                   forme: ligne.medicament?.forme ?? "hors stock",
                   posologie: posologie(ligne),
-                  quantite: ligne.quantitePrescrite,
+                  // Délivré et prescrit dans la même unité : plaquettes pour le comprimé et la gélule.
+                  quantite: unitesADelivrer(ligne.quantitePrescrite, ligne.medicament?.contenuConditionnement ?? 1),
+                  quantitePrescrite: ligne.quantitePrescrite,
+                  contenuConditionnement: ligne.medicament?.contenuConditionnement ?? 1,
                   quantiteDelivree: ligne.quantiteDelivree,
                 })),
               },

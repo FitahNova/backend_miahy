@@ -22,3 +22,49 @@ export function compterProduitsDisponibles(
 ): number {
   return new Set(medicaments.filter((medicament) => medicament.stock > 0).map(cleProduit)).size;
 }
+
+/**
+ * Formes dont la fiche précise le contenu d'une unité de vente (décision du 03/11/2026) :
+ * comprimés ou gélules par plaquette, suppositoires ou sachets par boîte, ml par flacon de sirop.
+ */
+/**
+ * Unité de vente (comme le front) : plaquette, boîte, flacon, tube, ampoule ou sachet.
+ * Deux formes de même unité (comprimé et gélule) gardent un stock et des prix comparables.
+ */
+export function uniteDeVente(forme: string, contenu = 1): string {
+  switch (forme) {
+    case "comprimé":
+    case "gélule":
+      return "plaquette";
+    case "suppositoire":
+      return "boîte";
+    case "sachet":
+      return contenu > 1 ? "boîte" : "sachet";
+    case "sirop":
+    case "collyre":
+      return "flacon";
+    case "pommade":
+      return "tube";
+    case "injectable":
+      return "ampoule";
+    default:
+      return forme;
+  }
+}
+
+export const FORMES_A_CONTENU = ["comprimé", "gélule", "suppositoire", "sachet", "sirop"] as const;
+
+/** Pommade (tube), injectable (ampoule), collyre (flacon) : instruction et quantité écrites par le médecin. */
+export const FORMES_QUANTITE_ECRITE = ["pommade", "injectable", "collyre"] as const;
+
+export const estQuantiteEcrite = (forme: string) => (FORMES_QUANTITE_ECRITE as readonly string[]).includes(forme);
+
+/** Contenu retenu pour une forme : la valeur saisie pour les formes à contenu, sinon 1. */
+export function contenuSelonForme(forme: string, contenu: number | null | undefined): number {
+  return (FORMES_A_CONTENU as readonly string[]).includes(forme) ? Math.max(1, contenu ?? 1) : 1;
+}
+
+/** Unités à délivrer : quantité prescrite ÷ contenu, arrondi au supérieur (15 comprimés et 10 → 2 plaquettes). */
+export function unitesADelivrer(quantitePrescrite: number, contenu: number): number {
+  return Math.ceil(quantitePrescrite / Math.max(1, contenu));
+}
