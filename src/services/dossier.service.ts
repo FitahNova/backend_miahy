@@ -166,7 +166,7 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
   // datées de la signature, ou de l'arrivée tant que la consultation n'est pas signée.
   const aDesMesures = (c: (typeof passages)[number]["consultation"]) =>
     Boolean(c && (c.tension || c.poidsKg !== null || c.pouls !== null || c.temperature !== null || c.spo2 !== null || c.glycemie !== null));
-  const mesures = clinique
+  const mesures = clinique && utilisateur.role !== Role.SECRETAIRE
     ? passages
         .filter((passage) => aDesMesures(passage.consultation))
         .map((passage) => ({ passage, date: passage.consultation?.signeeLe ?? passage.heureArrivee }))
@@ -205,7 +205,7 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
       )
     : [];
 
-  // Documents à réimprimer : ordonnances (clinique) et reçus (pas pour les soignants).
+  // Les documents sont listés dans le dossier ; l'API d'impression reste réservée aux rôles autorisés.
   const documents = [
     ...ordonnances.map((ordonnance) => ({
       type: "ORDONNANCE" as const,
