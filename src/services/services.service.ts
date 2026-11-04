@@ -22,6 +22,12 @@ export function listerServices() {
   return prisma.service.findMany({ select: selectionService, orderBy: { nom: "asc" } });
 }
 
+// Motifs d'arrivée : noms des services actifs seulement, jamais les tarifs.
+export async function listerNomsServicesActifs(): Promise<string[]> {
+  const services = await prisma.service.findMany({ where: { actif: true }, select: { nom: true }, orderBy: { nom: "asc" } });
+  return services.map((service) => service.nom);
+}
+
 export async function creerService(donnees: DonneesCreationService, auteurId: number) {
   try {
     return await prisma.$transaction(async (transaction) => {

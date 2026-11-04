@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { creerService, listerServices, modifierService } from "../services/services.service.js";
+import { creerService, listerNomsServicesActifs, listerServices, modifierService } from "../services/services.service.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
 
@@ -24,6 +24,10 @@ function lireAuteur(requete: Request): number {
 
 export async function obtenirServices(_requete: Request, reponse: Response) {
   reponse.json({ services: await listerServices() });
+}
+
+export async function obtenirNomsServices(_requete: Request, reponse: Response) {
+  reponse.json({ noms: await listerNomsServicesActifs() });
 }
 
 export async function ajouterService(requete: Request, reponse: Response) {
