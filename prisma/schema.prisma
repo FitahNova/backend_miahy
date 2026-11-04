@@ -256,6 +256,10 @@ model LigneOrdonnance {
   doseParPrise      Decimal?         @map("dose_par_prise") @db.Decimal(4, 2)
   prisesParJour     Int?             @map("prises_par_jour") @db.SmallInt
   dureeJours        Int?             @map("duree_jours") @db.SmallInt
+  // Rythme (04/11/2026) : prise tous les N jours (1 = chaque jour, 7 = chaque semaine, 30 = chaque mois).
+  intervalleJours   Int              @default(1) @map("intervalle_jours") @db.SmallInt
+  // Unité de durée écrite par le médecin (jours, semaines, mois) ; dureeJours reste en jours pour le calcul.
+  uniteDuree        String           @default("jours") @map("unite_duree") @db.VarChar(10)
   quantitePrescrite Int              @map("quantite_prescrite")
   quantiteDelivree  Int              @default(0) @map("quantite_delivree")
   instruction       String?          @db.VarChar(255)

@@ -4,6 +4,7 @@ import { ErreurHttp } from "../utils/errors.js";
 import { lireActes } from "./consultations.service.js";
 import { journaliserAcces } from "./journal.service.js";
 import { LIGNES_DU_STOCK } from "../utils/lignesDuStock.js";
+import { textePosologie } from "../utils/posologie.js";
 import { unitesADelivrer } from "../utils/produits.js";
 import { calculerStocks } from "./medicaments.service.js";
 import { prochainRendezVousDuPatient } from "./rendezVous.service.js";
@@ -52,6 +53,8 @@ export async function obtenirDonneesOrdonnance(passageId: number, utilisateurId:
               doseParPrise: true,
               prisesParJour: true,
               dureeJours: true,
+              intervalleJours: true,
+              uniteDuree: true,
               quantitePrescrite: true,
               instruction: true,
               libelle: true,
@@ -124,6 +127,11 @@ export async function obtenirBonDeDelivrance(passageId: number) {
               id: true,
               quantitePrescrite: true,
               quantiteDelivree: true,
+              doseParPrise: true,
+              prisesParJour: true,
+              dureeJours: true,
+              intervalleJours: true,
+              uniteDuree: true,
               instruction: true,
               medicament: { select: { id: true, nom: true, forme: true, contenuConditionnement: true } },
             },
@@ -167,6 +175,12 @@ export async function obtenirBonDeDelivrance(passageId: number) {
       quantiteDelivree: ligne.quantiteDelivree,
       resteADelivrer: unitesADelivrer(ligne.quantitePrescrite, ligne.medicament.contenuConditionnement) - ligne.quantiteDelivree,
       stockDisponible: stocks.get(ligne.medicament.id) ?? 0,
+      // « 1 cp, 1 fois par semaine, pendant 3 mois » ; pommade, injectable, collyre : l'instruction du médecin.
+      posologie: textePosologie({
+        ...ligne,
+        doseParPrise: ligne.doseParPrise === null ? null : Number(ligne.doseParPrise),
+        forme: ligne.medicament.forme,
+      }),
       instruction: ligne.instruction,
     })),
     horsOrdonnance,

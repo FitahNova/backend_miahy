@@ -3,6 +3,7 @@ import { Role, StatutPassage } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { estPerime } from "../utils/peremption.js";
+import { calculerQuantitePrescrite } from "../utils/posologie.js";
 import { estQuantiteEcrite } from "../utils/produits.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
@@ -16,6 +17,9 @@ export interface LigneOrdonnanceSaisie {
   doseParPrise?: number | null;
   prisesParJour?: number | null;
   dureeJours?: number | null;
+  /** Prise tous les N jours (1 par défaut) ; durée écrite en jours, semaines ou mois. */
+  intervalleJours?: number | null;
+  uniteDuree?: "jours" | "semaines" | "mois" | null;
   /** Pommade, injectable, collyre : nombre de tubes, d'ampoules ou de flacons. */
   quantite?: number | null;
   instruction?: string | null;
@@ -26,11 +30,8 @@ export interface PrescripteurConnecte {
   role: Role;
 }
 
-// Quantité prescrite = dose par prise × prises par jour × durée, arrondie à l'unité supérieure.
-export function calculerQuantitePrescrite(ligne: { doseParPrise: number; prisesParJour: number; dureeJours: number }): number {
-  const quantiteExacte = Math.round(ligne.doseParPrise * ligne.prisesParJour * ligne.dureeJours * 100) / 100;
-  return Math.ceil(quantiteExacte);
-}
+// Quantité prescrite : voir utils/posologie (dose × prises × nombre de périodes sur la durée).
+export { calculerQuantitePrescrite };
 
 // Le médecin voit le médicament prescrit, jamais son prix de vente ni son stock.
 const selectionOrdonnance = {
@@ -44,6 +45,8 @@ const selectionOrdonnance = {
       doseParPrise: true,
       prisesParJour: true,
       dureeJours: true,
+      intervalleJours: true,
+      uniteDuree: true,
       quantitePrescrite: true,
       quantiteDelivree: true,
       instruction: true,
@@ -146,13 +149,18 @@ export async function enregistrerOrdonnanceDuPassage(
       if (medicament && estQuantiteEcrite(medicament.forme)) {
         if (!ligne.quantite) throw new ErreurHttp(400, "QUANTITE_REQUISE", { medicament: medicament.nom });
         if (!base.instruction) throw new ErreurHttp(400, "INSTRUCTION_REQUISE", { medicament: medicament.nom });
-        return { ...base, doseParPrise: null, prisesParJour: null, dureeJours: null, quantitePrescrite: ligne.quantite };
+        return { ...base, doseParPrise: null, prisesParJour: null, dureeJours: null, intervalleJours: 1, uniteDuree: "jours", quantitePrescrite: ligne.quantite };
       }
       if (!ligne.doseParPrise || !ligne.prisesParJour || !ligne.dureeJours) {
         throw new ErreurHttp(400, "POSOLOGIE_REQUISE", { medicament: medicament?.nom ?? ligne.libelle ?? null });
       }
-      const posologie = { doseParPrise: ligne.doseParPrise, prisesParJour: ligne.prisesParJour, dureeJours: ligne.dureeJours };
-      return { ...base, ...posologie, quantitePrescrite: calculerQuantitePrescrite(posologie) };
+      // Une prise par semaine pendant 3 jours n'a pas de sens : le rythme ne dépasse pas la durée.
+      const intervalleJours = ligne.intervalleJours ?? 1;
+      if (intervalleJours > ligne.dureeJours) {
+        throw new ErreurHttp(400, "RYTHME_INCOHERENT", { medicament: medicament?.nom ?? ligne.libelle ?? null });
+      }
+      const posologie = { doseParPrise: ligne.doseParPrise, prisesParJour: ligne.prisesParJour, dureeJours: ligne.dureeJours, intervalleJours };
+      return { ...base, ...posologie, uniteDuree: ligne.uniteDuree ?? "jours", quantitePrescrite: calculerQuantitePrescrite(posologie) };
     });
 
     await transaction.ligneOrdonnance.deleteMany({ where: { ordonnanceId: ordonnance.id } });

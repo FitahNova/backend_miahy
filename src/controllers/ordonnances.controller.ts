@@ -13,6 +13,9 @@ const schemaLigne = z
     doseParPrise: z.number().positive().max(99.99).nullish(),
     prisesParJour: z.number().int().min(1).max(24).nullish(),
     dureeJours: z.number().int().min(1).max(365).nullish(),
+    // Rythme : prise tous les N jours (1 = chaque jour), durée écrite en jours, semaines ou mois.
+    intervalleJours: z.number().int().min(1).max(365).nullish(),
+    uniteDuree: z.enum(["jours", "semaines", "mois"]).nullish(),
     quantite: z.number().int().min(1).max(999).nullish(),
     instruction: z.string().trim().max(255).nullish(),
   })
