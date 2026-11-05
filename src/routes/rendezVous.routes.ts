@@ -3,7 +3,7 @@ import { Role } from "../generated/prisma/client.js";
 import { SOIGNANTS } from "../config/constants.js";
 import { exigerConnexion, exigerRole } from "../middleware/auth.js";
 import { gererAsync } from "../utils/asyncHandler.js";
-import { clore, compteurs, creer, disponibilites, lister, praticiens, venu } from "../controllers/rendezVous.controller.js";
+import { clore, compteurs, creer, disponibilites, lister, praticiens, praticiensOccupes, venu } from "../controllers/rendezVous.controller.js";
 
 // Matrice de droits : rendez-vous pour la Secrétaire et les soignants.
 // L'arrivée (« Venu ») et l'absence se notent à l'accueil : Secrétaire seule.
@@ -13,6 +13,7 @@ routeur.use(exigerConnexion);
 routeur.get("/compteurs", gererAsync(compteurs));
 routeur.get("/disponibilites", exigerRole(Role.SECRETAIRE, Role.DIRECTION, ...SOIGNANTS), gererAsync(disponibilites));
 routeur.get("/praticiens", exigerRole(Role.SECRETAIRE, Role.DIRECTION, ...SOIGNANTS), gererAsync(praticiens));
+routeur.get("/praticiens-occupes", exigerRole(Role.SECRETAIRE, Role.DIRECTION, ...SOIGNANTS), gererAsync(praticiensOccupes));
 routeur.get("/", exigerRole(Role.SECRETAIRE, ...SOIGNANTS), gererAsync(lister));
 // « + RDV » depuis le dossier patient : ouvert aussi à la Direction (maquette).
 routeur.post("/", exigerRole(Role.SECRETAIRE, Role.DIRECTION, ...SOIGNANTS), gererAsync(creer));

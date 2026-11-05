@@ -1,7 +1,7 @@
 /*
  * Rendez-vous (dossier §6.7, maquette « Rendez-vous »).
  * - Statuts : PRÉVU → VENU (crée le passage dans la file d'attente) | ABSENT | ANNULÉ.
- * - Médecin et Sage-femme voient leurs rendez-vous ; Médecin chef et Secrétaire voient tout.
+ * - Tous les rôles voient tous les rendez-vous, sans filtre par praticien ni par fonction (décision du 29/10/2026).
  * - L'arrivée (« Venu ») et l'absence sont notées par la secrétaire, comme toute arrivée à l'accueil.
  * - Une revue programmée à la signature d'une consultation crée automatiquement un rendez-vous.
  */
@@ -77,6 +77,25 @@ export async function listerCreneauxOccupes(jour: string, praticienId: number) {
     orderBy: { dateHeure: "asc" },
   });
   return rendezVous.map((rdv) => rdv.dateHeure);
+}
+
+/**
+ * Praticiens déjà pris sur un créneau (± 30 min), tous praticiens confondus : grisés dans le choix « Avec ».
+ * Seuls l'identifiant du praticien et l'heure sont renvoyés, jamais le patient.
+ */
+export async function listerPraticiensOccupes(dateHeure: Date) {
+  const ecart = DUREE_CRENEAU_RENDEZ_VOUS_MINUTES * 60 * 1000;
+  const rendezVous = await prisma.rendezVous.findMany({
+    where: {
+      statut: StatutRendezVous.PREVU,
+      praticienId: { not: null },
+      dateHeure: { gt: new Date(dateHeure.getTime() - ecart), lt: new Date(dateHeure.getTime() + ecart) },
+    },
+    select: { praticienId: true, dateHeure: true },
+  });
+  return rendezVous
+    .filter((rdv) => rdv.praticienId !== null && memeCreneau(rdv.dateHeure, dateHeure))
+    .map((rdv) => ({ praticienId: rdv.praticienId as number, dateHeure: rdv.dateHeure }));
 }
 
 async function verifierPraticien(client: Prisma.TransactionClient, praticienId: number) {
