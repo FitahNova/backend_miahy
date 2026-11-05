@@ -72,7 +72,8 @@ export async function lireOptionsJournal(role: Role) {
   ]);
   const utilisateurs = await prisma.utilisateur.findMany({
     where: { id: { in: auteurs.map((auteur) => auteur.utilisateurId!) } },
-    select: { id: true, nom: true, prenom: true },
+    // Le rôle s'affiche à côté du nom dans le filtre « Personne » (deux comptes peuvent porter le même prénom).
+    select: { id: true, nom: true, prenom: true, role: true },
     orderBy: { nom: "asc" },
   });
   return {
