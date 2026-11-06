@@ -6,6 +6,7 @@ import { gererAsync } from "../utils/asyncHandler.js";
 import {
   ajouterGardeJour,
   copierSemaineGardes,
+  lireCompteursMoisGardes,
   imprimerGardes,
   lireReglementGardes,
   lireSemaineGardes,
@@ -19,6 +20,7 @@ routeur.use(exigerConnexion);
 
 // Lecture : médecin chef, médecin et sage-femme.
 routeur.get("/semaine", exigerRole(...SOIGNANTS), gererAsync(lireSemaineGardes));
+routeur.get("/mois", exigerRole(...SOIGNANTS), gererAsync(lireCompteursMoisGardes));
 routeur.get("/personnes", exigerRole(...SOIGNANTS), gererAsync(listerPersonnesGardes));
 routeur.get("/reglement", exigerRole(...SOIGNANTS), gererAsync(lireReglementGardes));
 routeur.get("/impression", exigerRole(...SOIGNANTS), gererAsync(imprimerGardes));

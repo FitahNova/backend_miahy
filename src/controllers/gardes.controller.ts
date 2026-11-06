@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   ajouterPersonneGarde,
   copierSemaine,
+  lireCompteursMois,
   lireReglement,
   lireSemaine,
   listerPersonnesDeGarde,
@@ -37,8 +38,18 @@ function lireDebut(requete: Request): string {
   return debut;
 }
 
+function lireMois(requete: Request): string {
+  const mois = requete.query.mois;
+  if (typeof mois !== "string") throw new ErreurHttp(400, "DATE_INVALIDE");
+  return mois;
+}
+
 export async function lireSemaineGardes(requete: Request, reponse: Response) {
   reponse.json(await lireSemaine(lireDebut(requete)));
+}
+
+export async function lireCompteursMoisGardes(requete: Request, reponse: Response) {
+  reponse.json({ compteurs: await lireCompteursMois(lireMois(requete)) });
 }
 
 export async function listerPersonnesGardes(_requete: Request, reponse: Response) {
