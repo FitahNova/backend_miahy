@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "../config/prisma.js";
 import { DUREE_SESSION_HEURES } from "../config/constants.js";
 import { signerJeton } from "../middleware/auth.js";
+import { fermerFluxDuCompte } from "../realtime/sse.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { journaliserConnexion } from "./journal.service.js";
 
@@ -64,6 +65,7 @@ export async function revoquerToutesLesSessions(utilisateurId: number) {
       data: { versionSession: { increment: 1 } },
     }),
   ]);
+  fermerFluxDuCompte(utilisateurId);
 }
 
 // Rotation : chaque renouvellement remplace le refresh token.
@@ -144,6 +146,8 @@ export async function revoquerSession(refreshToken: string): Promise<number | nu
       data: { versionSession: { increment: 1 } },
     }),
   ]);
+  // Les jetons du compte ne valent plus rien (version changée) : ses flux temps réel sont fermés aussi.
+  fermerFluxDuCompte(session.utilisateurId);
 
   return session.utilisateurId;
 }

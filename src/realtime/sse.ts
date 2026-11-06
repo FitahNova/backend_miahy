@@ -2,7 +2,8 @@ import type { Request, Response } from "express";
 import { INTERVALLE_PING_SSE_SECONDES } from "../config/constants.js";
 import type { Evenement } from "./events.js";
 
-const clientsConnectes = new Set<Response>();
+// Chaque flux ouvert, avec le compte à qui il appartient : un compte coupé perd aussi ses flux.
+const clientsConnectes = new Map<Response, number>();
 
 function ecrire(client: Response, message: string) {
   // Connexion déjà fermée côté navigateur : on retire le client au lieu d'écrire dans le vide.
@@ -23,7 +24,8 @@ export function ouvrirFluxEvenements(requete: Request, reponse: Response) {
   reponse.flushHeaders();
   reponse.write("retry: 3000\n\n"); // le navigateur se reconnecte seul après 3 s
 
-  clientsConnectes.add(reponse);
+  // La route passe par exigerConnexion : le compte est connu.
+  clientsConnectes.set(reponse, requete.utilisateur?.id ?? 0);
   const ping = setInterval(() => ecrire(reponse, ": ping\n\n"), INTERVALLE_PING_SSE_SECONDES * 1000);
 
   // Nettoyage unique : fermeture normale, coupure réseau ou erreur d'écriture (pas de fuite de connexion).
@@ -32,7 +34,20 @@ export function ouvrirFluxEvenements(requete: Request, reponse: Response) {
     clientsConnectes.delete(reponse);
   };
   requete.on("close", fermer);
+  reponse.on("close", fermer); // aussi quand le serveur ferme le flux (compte coupé)
   reponse.on("error", fermer);
+}
+
+/**
+ * Ferme tout de suite les flux d'un compte : désactivation, sessions coupées, déconnexion.
+ * Le navigateur tente de se reconnecter, mais la connexion est refusée : le compte ne reçoit plus rien.
+ */
+export function fermerFluxDuCompte(utilisateurId: number) {
+  for (const [client, proprietaire] of clientsConnectes) {
+    if (proprietaire !== utilisateurId) continue;
+    clientsConnectes.delete(client);
+    if (!client.writableEnded) client.end();
+  }
 }
 
 // À appeler APRÈS la réussite d'une opération (donc hors transaction).
@@ -42,6 +57,6 @@ export function diffuser(evenements: Evenement | Evenement[], donnees: Record<st
   const corps = JSON.stringify(donnees);
   for (const evenement of liste) {
     const message = `event: ${evenement}\ndata: ${corps}\n\n`;
-    for (const client of clientsConnectes) ecrire(client, message);
+    for (const client of clientsConnectes.keys()) ecrire(client, message);
   }
 }
