@@ -328,8 +328,29 @@ model LigneFacture {
   ligneOrdonnanceId Int?             @map("ligne_ordonnance_id")
   ligneOrdonnance   LigneOrdonnance? @relation(fields: [ligneOrdonnanceId], references: [id])
   mouvements        MouvementStock[]
+  // Acte : tarification copiée au moment de la facture ; prixUnitaire est le prix final. Un changement des
+  // paramètres plus tard ne touche jamais une facture déjà faite. Vide pour les médicaments et les anciennes lignes.
+  prixBase          Int?             @map("prix_base")
+  nationalite       Nationalite?
+  tauxEtranger      Int?             @map("taux_etranger") @db.SmallInt
+  tauxSoir          Int?             @map("taux_soir") @db.SmallInt
 
   @@map("ligne_facture")
+}
+
+// Paramètres de tarification des actes, réglés par la Direction : une seule ligne (id = 1).
+// Le tarif d'un service est le tarif Malagasy en heures normales ; ces majorations s'y appliquent.
+model ParametresTarification {
+  id                         Int      @id @default(1)
+  majorationSoirPourcent     Int      @default(30) @map("majoration_soir_pourcent") @db.SmallInt
+  // Heures du centre (Indian/Antananarivo), « HH:mm » : plage normale de heureOuverture (incluse) à heureDebutSoir (exclue).
+  heureDebutSoir             String   @default("18:00") @map("heure_debut_soir") @db.VarChar(5)
+  heureOuverture             String   @default("07:30") @map("heure_ouverture") @db.VarChar(5)
+  majorationEtrangerPourcent Int      @default(25) @map("majoration_etranger_pourcent") @db.SmallInt
+  modifieLe                  DateTime @default(now()) @map("modifie_le") @db.Timestamptz(6)
+  modifieParId               Int?     @map("modifie_par_id")
+
+  @@map("parametres_tarification")
 }
 
 model Paiement {

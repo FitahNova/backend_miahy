@@ -96,7 +96,17 @@ export async function listerPassagesAuComptoir() {
           montantPaye: true,
           lignes: {
             orderBy: { id: "asc" },
-            select: { id: true, type: true, libelle: true, quantite: true, prixUnitaire: true, ligneOrdonnanceId: true },
+            select: {
+              id: true,
+              type: true,
+              libelle: true,
+              quantite: true,
+              prixUnitaire: true,
+              prixBase: true,
+              tauxEtranger: true,
+              tauxSoir: true,
+              ligneOrdonnanceId: true,
+            },
           },
         },
       },

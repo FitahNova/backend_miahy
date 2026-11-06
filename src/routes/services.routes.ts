@@ -2,7 +2,14 @@ import { Router } from "express";
 import { Role } from "../generated/prisma/client.js";
 import { exigerConnexion, exigerRole } from "../middleware/auth.js";
 import { gererAsync } from "../utils/asyncHandler.js";
-import { ajouterService, mettreAJourService, obtenirNomsServices, obtenirServices } from "../controllers/services.controller.js";
+import {
+  ajouterService,
+  enregistrerTarification,
+  mettreAJourService,
+  obtenirNomsServices,
+  obtenirServices,
+  obtenirTarification,
+} from "../controllers/services.controller.js";
 
 // Services et tarifs (R078) : Direction uniquement.
 const DIRECTION_SEULE = [Role.DIRECTION];
@@ -14,6 +21,9 @@ routeur.use(exigerConnexion);
 routeur.get("/", exigerRole(...DIRECTION_SEULE, Role.MEDECIN_CHEF), gererAsync(obtenirServices));
 // Motifs proposés à l'arrivée d'un patient : la Secrétaire voit les noms des services actifs, sans les tarifs.
 routeur.get("/noms", exigerRole(Role.SECRETAIRE, ...DIRECTION_SEULE), gererAsync(obtenirNomsServices));
+// Paramètres de tarification (majorations du soir et des étrangers) : Direction seule, en lecture comme en écriture.
+routeur.get("/tarification", exigerRole(...DIRECTION_SEULE), gererAsync(obtenirTarification));
+routeur.put("/tarification", exigerRole(...DIRECTION_SEULE), gererAsync(enregistrerTarification));
 routeur.post("/", exigerRole(...DIRECTION_SEULE), gererAsync(ajouterService));
 routeur.patch("/:id", exigerRole(...DIRECTION_SEULE), gererAsync(mettreAJourService));
 

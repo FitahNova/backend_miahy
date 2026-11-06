@@ -10,6 +10,8 @@ import { terminerPassageDansTransaction } from "./passages.service.js";
 import { creerRendezVousDeRevue, prochainRendezVousDuPatient } from "./rendezVous.service.js";
 import { creerSuiviAutomatique } from "./suivis.service.js";
 import { jourDuCentre } from "../utils/suivis.js";
+import { calculerTarif } from "../utils/tarification.js";
+import { lireParametresTarification } from "./tarification.service.js";
 
 export interface UtilisateurConnecte {
   id: number;
@@ -84,6 +86,7 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
           dateNaissance: true,
           allergies: true,
           sensible: true,
+          nationalite: true,
           programme: { select: { nom: true } },
         },
       },
@@ -95,7 +98,7 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
   // Trace de la lecture avant de renvoyer les données médicales.
   await journaliserAcces(utilisateur.id, "LECTURE_CONSULTATION", "passage", passageId);
 
-  const [consultation, visites, services, prochainRendezVous] = await Promise.all([
+  const [consultation, visites, services, prochainRendezVous, parametresTarif] = await Promise.all([
     prisma.consultation.findUnique({ where: { passageId } }),
     prisma.consultation.findMany({
       where: { signeeLe: { not: null }, passage: { patientId: passage.patient.id, id: { not: passageId } } },
@@ -112,6 +115,7 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
     }),
     prisma.service.findMany({ where: { actif: true }, orderBy: { id: "asc" }, select: { id: true, nom: true, prix: true } }),
     prochainRendezVousDuPatient(passage.patient.id),
+    lireParametresTarification(),
   ]);
 
   // Par défaut, l'acte « Consultation » est coché (maquette). Le nom peut avoir été retouché
@@ -131,7 +135,14 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
       patient: passage.patient,
       dernieresVisites: visites.map(({ passage: visite, ...reste }) => ({ ...reste, praticien: visite.praticien })),
       prochainRendezVous,
-      services,
+      // Prix que paierait ce patient si l'acte était facturé maintenant (le prix réel est fixé à la signature).
+      services: services.map((service) => ({
+        ...service,
+        tarif:
+          service.prix === null
+            ? null
+            : calculerTarif(service.prix, { nationalite: passage.patient.nationalite, date: new Date() }, parametresTarif),
+      })),
       actesParDefaut: actes,
     },
   };

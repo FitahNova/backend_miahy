@@ -5,6 +5,8 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
+import { lireParametresTarification } from "./tarification.service.js";
+import { calculerTarif } from "../utils/tarification.js";
 
 const NOM_SERVICE_CONSULTATION = "Consultation";
 const NOMBRE_CHIFFRES_NUMERO_FACTURE = 4; // R-0001
@@ -59,6 +61,12 @@ export async function creerFacturePourPassage(
   const identifiantsServices = [...new Set(actes.map((acte) => acte.serviceId))];
   const services = await client.service.findMany({ where: { id: { in: identifiantsServices } } });
   const servicesParIdentifiant = new Map(services.map((service) => [service.id, service]));
+  // Tarif selon la nationalité du patient et l'heure de l'acte facturé (maintenant, heure du centre).
+  const [patient, parametres] = await Promise.all([
+    client.patient.findUniqueOrThrow({ where: { id: donnees.patientId }, select: { nationalite: true } }),
+    lireParametresTarification(client),
+  ]);
+  const maintenant = new Date();
 
   const lignes = actes.map((acte) => {
     const service = servicesParIdentifiant.get(acte.serviceId);
@@ -68,12 +76,18 @@ export async function creerFacturePourPassage(
     if (service.prix === null) {
       throw new ErreurHttp(409, "PRIX_SERVICE_A_FIXER", { service: service.nom });
     }
+    const tarif = calculerTarif(service.prix, { nationalite: patient.nationalite, date: maintenant }, parametres);
     return {
       type: TypeLigneFacture.ACTE,
       serviceId: service.id,
       libelle: service.nom,
       quantite: acte.quantite,
-      prixUnitaire: service.prix,
+      // Détail copié sur la ligne : la facture garde le calcul du jour, quels que soient les paramètres futurs.
+      prixUnitaire: tarif.prix,
+      prixBase: tarif.prixBase,
+      nationalite: tarif.nationalite,
+      tauxEtranger: tarif.tauxEtranger,
+      tauxSoir: tarif.tauxSoir,
     };
   });
 
@@ -300,7 +314,7 @@ export async function obtenirFacture(factureId: number) {
       motifAnnulation: true,
       lignes: {
         orderBy: { id: "asc" },
-        select: { id: true, type: true, libelle: true, quantite: true, prixUnitaire: true },
+        select: { id: true, type: true, libelle: true, quantite: true, prixUnitaire: true, prixBase: true, tauxEtranger: true, tauxSoir: true },
       },
       paiements: {
         orderBy: { date: "asc" },
