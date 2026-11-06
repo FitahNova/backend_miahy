@@ -72,6 +72,32 @@ export async function lireSemaine(debut: string) {
   };
 }
 
+// Nombre de gardes par personne sur un mois civil, en incluant les personnes à zéro garde.
+export async function lireCompteursMois(mois: string) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mois)) throw new ErreurHttp(400, "DATE_INVALIDE");
+  const [annee, numeroMois] = mois.split("-").map(Number);
+  const debut = new Date(Date.UTC(annee, numeroMois - 1, 1));
+  const fin = new Date(Date.UTC(annee, numeroMois, 1));
+
+  const [personnes, gardes] = await Promise.all([
+    listerPersonnesDeGarde(),
+    prisma.gardeJour.findMany({
+      where: { date: { gte: debut, lt: fin } },
+      select: { utilisateur: { select: { id: true, civilite: true, nom: true, prenom: true } } },
+    }),
+  ]);
+  const compteurs = new Map<number, PersonneGarde & { nombre: number }>(
+    personnes.map((personne) => [personne.id, { ...personne, nombre: 0 }]),
+  );
+
+  for (const { utilisateur } of gardes) {
+    const existant = compteurs.get(utilisateur.id);
+    compteurs.set(utilisateur.id, { ...utilisateur, nombre: (existant?.nombre ?? 0) + 1 });
+  }
+
+  return [...compteurs.values()].sort((a, b) => b.nombre - a.nombre || a.nom.localeCompare(b.nom));
+}
+
 // Personnes pouvant être de garde (actives uniquement).
 export function listerPersonnesDeGarde() {
   return prisma.utilisateur.findMany({
