@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { Role } from "../generated/prisma/client.js";
+import { Nationalite, Role } from "../generated/prisma/client.js";
 import {
   creerNouveauPatient,
   TAILLE_PAGE_PATIENTS_MAXIMALE,
@@ -23,6 +23,7 @@ const champsPatient = {
   ...champsNaissance,
   telephone: z.string().trim().max(20).nullish(),
   adresse: z.string().trim().max(255).nullish(),
+  nationalite: z.enum(Nationalite).nullish(),
   allergies: z.string().trim().nullish(),
   // Pas de programme saisi : le serveur le déduit toujours de l'âge et du sexe (un programmeId envoyé est ignoré).
   financement: z.string().trim().min(1).max(30).optional(),

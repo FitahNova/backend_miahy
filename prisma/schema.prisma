@@ -29,6 +29,14 @@ enum Sexe {
   @@map("sexe")
 }
 
+// Précisée à l'arrivée : Malagasy ou étranger (pas de pays).
+enum Nationalite {
+  MALAGASY @map("malagasy")
+  ETRANGER @map("etranger")
+
+  @@map("nationalite")
+}
+
 model Programme {
   id       Int       @id @default(autoincrement())
   nom      String    @unique @db.VarChar(50)
@@ -150,6 +158,8 @@ model Patient {
   dateNaissance    DateTime   @map("date_naissance") @db.Date
   telephone        String?    @db.VarChar(20)
   adresse          String?    @db.VarChar(255)
+  // Vide pour les patients enregistrés avant le 05/11/2026 : demandée à leur prochaine arrivée.
+  nationalite      Nationalite?
   allergies        String?    @db.Text
   programmeId      Int?       @map("programme_id")
   programme        Programme? @relation(fields: [programmeId], references: [id])

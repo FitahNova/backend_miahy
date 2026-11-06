@@ -2,7 +2,7 @@ import { LIGNES_DU_STOCK } from "../utils/lignesDuStock.js";
 import { prisma } from "../config/prisma.js";
 import { SEUIL_ATTENTE_LONGUE_MINUTES, SOIGNANTS } from "../config/constants.js";
 import { Orientation, Role, StatutPassage } from "../generated/prisma/client.js";
-import type { Prisma } from "../generated/prisma/client.js";
+import type { Nationalite, Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { verifierMotifGrossesse } from "../utils/motifs.js";
@@ -51,6 +51,7 @@ export interface DonneesNouveauPassage {
   constantes?: { tension?: string; poidsKg?: number; pouls?: number; temperature?: number; glycemie?: number; spo2?: number };
   allergies?: string | null;
   sensible?: boolean;
+  nationalite?: Nationalite;
 }
 
 function ajouterIndicateursAttente<T extends { statut: StatutPassage; heureArrivee: Date }>(passage: T) {
@@ -174,9 +175,13 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
   }
   const patient = await transaction.patient.findUniqueOrThrow({
     where: { id: donnees.patientId },
-    select: { sexe: true, dateNaissance: true, programmeId: true },
+    select: { sexe: true, dateNaissance: true, programmeId: true, nationalite: true },
   });
   verifierMotifGrossesse(donnees.motif, patient);
+  // Arrivée à l'accueil : la nationalité doit être connue (déjà sur la fiche, ou précisée maintenant).
+  if (auteurId !== undefined && !patient.nationalite && !donnees.nationalite) {
+    throw new ErreurHttp(400, "NATIONALITE_REQUISE");
+  }
 
   const enCours = await transaction.passage.findFirst({
     where: { patientId: donnees.patientId, statut: { in: STATUTS_PASSAGE_EN_COURS } },
@@ -187,9 +192,10 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
   }
 
   if (auteurId !== undefined) {
-    const changements: { allergies?: string | null; sensible?: boolean } = {};
+    const changements: { allergies?: string | null; sensible?: boolean; nationalite?: Nationalite } = {};
     if (donnees.allergies !== undefined) changements.allergies = donnees.allergies;
     if (donnees.sensible !== undefined) changements.sensible = donnees.sensible;
+    if (donnees.nationalite !== undefined && donnees.nationalite !== patient.nationalite) changements.nationalite = donnees.nationalite;
     if (Object.keys(changements).length > 0) {
       await transaction.patient.update({ where: { id: donnees.patientId }, data: changements });
       await enregistrerAudit(transaction, {

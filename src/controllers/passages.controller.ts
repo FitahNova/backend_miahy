@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { Orientation, StatutPassage } from "../generated/prisma/client.js";
+import { Nationalite, Orientation, StatutPassage } from "../generated/prisma/client.js";
 import { SOIGNANTS } from "../config/constants.js";
 import {
   affecterPraticienAuPassage,
@@ -52,6 +52,7 @@ const schemaNouveauPassage = z.object({
   }).optional(),
   allergies: z.string().trim().max(2000).nullable().optional(),
   sensible: z.boolean().optional(),
+  nationalite: z.enum(Nationalite).optional(),
 }).refine((passage) => passage.orientation != null || passage.praticienId != null, {
   path: ["orientation"],
   message: "Choisissez Médecin ou Sage-femme",
