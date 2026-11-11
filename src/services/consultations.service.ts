@@ -3,7 +3,7 @@ import { OrigineSuivi, Role, StatutPassage } from "../generated/prisma/client.js
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
-import { verifierMotifGrossesse } from "../utils/motifs.js";
+import { servicesDuMotif, verifierMotifGrossesse } from "../utils/motifs.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { journaliserAcces } from "./journal.service.js";
 import { terminerPassageDansTransaction } from "./passages.service.js";
@@ -140,7 +140,17 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
   // Un acte désactivé ou repassé « à fixer » par la Direction depuis le brouillon n'est plus proposé.
   const facturables = new Set(services.filter((service) => service.prix !== null).map((service) => service.id));
   const actesEnregistres = consultation ? lireActes(consultation.brouillon).filter((id) => facturables.has(id)) : [];
-  const actes = actesEnregistres.length > 0 ? actesEnregistres : acteParDefaut ? [acteParDefaut.id] : [];
+  // Sans brouillon : les services choisis comme motif à l'accueil sont déjà cochés (le praticien peut en retirer ou
+  // en ajouter) ; sans service parmi les motifs, l'acte « Consultation ».
+  const actesDuMotif = servicesDuMotif(passage.motif, services.filter((service) => facturables.has(service.id)));
+  const actes =
+    actesEnregistres.length > 0
+      ? actesEnregistres
+      : actesDuMotif.length > 0
+        ? actesDuMotif
+        : acteParDefaut
+          ? [acteParDefaut.id]
+          : [];
   const prescriptibles = new Set(analyses.map((analyse) => analyse.id));
   const analysesEnregistrees = consultation ? lireAnalyses(consultation.brouillon).filter((id) => prescriptibles.has(id)) : [];
 

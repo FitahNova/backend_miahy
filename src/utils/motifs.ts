@@ -44,3 +44,17 @@ export function verifierMotifGrossesse(
     throw new ErreurHttp(422, "MOTIF_GROSSESSE_INCOMPATIBLE", { raison: "AGE", age });
   }
 }
+
+/**
+ * Services choisis comme motif à l'accueil (« Échographie, Toux ou fièvre ») : identifiants des services dont le nom
+ * figure parmi les motifs, sans tenir compte des majuscules ni des accents. Les motifs libres (« Malaise ») sont ignorés.
+ */
+export function servicesDuMotif(motif: string, services: readonly { id: number; nom: string }[]): number[] {
+  const motifs = `, ${sansAccents(motif).replace(/\s+/g, " ").trim()}, `;
+  return services
+    .filter((service) => {
+      const nom = sansAccents(service.nom).replace(/\s+/g, " ").trim();
+      return nom.length > 0 && motifs.includes(`, ${nom}, `);
+    })
+    .map((service) => service.id);
+}

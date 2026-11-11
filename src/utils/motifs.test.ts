@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { ErreurHttp } from "./errors.js";
-import { ageEnAnnees, estMotifGrossesse, verifierMotifGrossesse } from "./motifs.js";
+import { ageEnAnnees, estMotifGrossesse, servicesDuMotif, verifierMotifGrossesse } from "./motifs.js";
 
 const VISITE = new Date("2026-10-16T09:00:00.000Z");
 
@@ -51,5 +51,24 @@ describe("Motif grossesse", () => {
     // 21 h UTC le 15/10 = 0 h le 16/10 à Madagascar : l'anniversaire du 16/10 est atteint.
     assert.equal(ageEnAnnees(new Date("2000-10-16T00:00:00.000Z"), new Date("2026-10-15T21:00:00.000Z")), 26);
     assert.equal(ageEnAnnees(new Date("2000-10-16T00:00:00.000Z"), new Date("2026-10-15T20:59:00.000Z")), 25);
+  });
+});
+
+describe("Motifs de l'accueil : services déjà cochés en consultation", () => {
+  const services = [
+    { id: 1, nom: "Consultation" },
+    { id: 2, nom: "Échographie" },
+    { id: 3, nom: "Pansement simple, petit" },
+  ];
+  it("reprend les services choisis comme motif, sans tenir compte des accents ni des majuscules", () => {
+    assert.deepEqual(servicesDuMotif("echographie, Toux ou fièvre", services), [2]);
+    assert.deepEqual(servicesDuMotif("Consultation, Échographie", services), [1, 2]);
+  });
+  it("reconnaît un service dont le nom contient une virgule", () => {
+    assert.deepEqual(servicesDuMotif("Malaise, Pansement simple, petit", services), [3]);
+  });
+  it("ignore les motifs libres et les noms seulement contenus dans un motif", () => {
+    assert.deepEqual(servicesDuMotif("Malaise, Toux ou fièvre", services), []);
+    assert.deepEqual(servicesDuMotif("Consultation prénatale", services), []);
   });
 });
