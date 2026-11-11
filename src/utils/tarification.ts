@@ -2,7 +2,8 @@ import type { Nationalite } from "../generated/prisma/client.js";
 
 /*
  * Tarif d'un acte : le tarif saisi pour le service est le tarif Malagasy en heures normales.
- * Étranger : + majoration étranger ; hors plage normale (dès l'heure du soir, ou avant l'ouverture) : + majoration du soir.
+ * Étranger : tarif x2, fixe (décision de la Direction du 10/11/2026, services seulement : les analyses n'ont qu'un tarif).
+ * Hors plage normale (dès l'heure du soir, ou avant l'ouverture) : + majoration du soir, réglée dans les Paramètres.
  * Les deux majorations se multiplient, puis le prix est arrondi à l'Ariary.
  * Seule source de calcul de l'application : facturation, prix des actes en consultation, aperçu des tarifs.
  */
@@ -13,14 +14,15 @@ export interface ParametresTarif {
   heureDebutSoir: string;
   /** « HH:mm », heure du centre : la plage normale commence à cette heure. */
   heureOuverture: string;
-  majorationEtrangerPourcent: number;
 }
+
+/** Étranger : x2, soit +100 %. Fixe, sans paramètre. */
+export const MAJORATION_ETRANGER_POURCENT = 100;
 
 export const PARAMETRES_TARIF_DEFAUT: ParametresTarif = {
   majorationSoirPourcent: 30,
   heureDebutSoir: "18:00",
   heureOuverture: "07:30",
-  majorationEtrangerPourcent: 25,
 };
 
 export const FORMAT_HEURE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -62,7 +64,7 @@ export function calculerTarif(
   contexte: { nationalite: Nationalite | null; date: Date },
   parametres: ParametresTarif,
 ): DetailTarif {
-  const tauxEtranger = contexte.nationalite === "ETRANGER" ? parametres.majorationEtrangerPourcent : 0;
+  const tauxEtranger = contexte.nationalite === "ETRANGER" ? MAJORATION_ETRANGER_POURCENT : 0;
   const tauxSoir = estHorsPlage(heureDuCentre(contexte.date), parametres) ? parametres.majorationSoirPourcent : 0;
   return {
     prixBase,

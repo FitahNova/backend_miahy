@@ -37,7 +37,6 @@ const schemaTarification = z
     majorationSoirPourcent: pourcentage,
     heureDebutSoir: heure,
     heureOuverture: heure,
-    majorationEtrangerPourcent: pourcentage,
     // Confirmation par le mot de passe de la Direction, vérifié par le serveur.
     motDePasse: z.string().min(1).max(200),
   })

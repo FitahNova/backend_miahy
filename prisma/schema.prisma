@@ -339,14 +339,14 @@ model LigneFacture {
 }
 
 // Paramètres de tarification des actes, réglés par la Direction : une seule ligne (id = 1).
-// Le tarif d'un service est le tarif Malagasy en heures normales ; ces majorations s'y appliquent.
+// Le tarif d'un service est le tarif Malagasy en heures normales ; la majoration du soir s'y applique.
+// Étranger : x2 fixe, sans paramètre (voir utils/tarification.ts).
 model ParametresTarification {
   id                         Int      @id @default(1)
   majorationSoirPourcent     Int      @default(30) @map("majoration_soir_pourcent") @db.SmallInt
   // Heures du centre (Indian/Antananarivo), « HH:mm » : plage normale de heureOuverture (incluse) à heureDebutSoir (exclue).
   heureDebutSoir             String   @default("18:00") @map("heure_debut_soir") @db.VarChar(5)
   heureOuverture             String   @default("07:30") @map("heure_ouverture") @db.VarChar(5)
-  majorationEtrangerPourcent Int      @default(25) @map("majoration_etranger_pourcent") @db.SmallInt
   modifieLe                  DateTime @default(now()) @map("modifie_le") @db.Timestamptz(6)
   modifieParId               Int?     @map("modifie_par_id")
 
@@ -510,6 +510,7 @@ model Analyse {
   instruction String?              @db.VarChar(500)
   actif       Boolean              @default(true)
   creeLe      DateTime             @default(now()) @map("cree_le") @db.Timestamptz(6)
+  lignesFacture LigneFacture[]
 
   @@index([categorieId])
   @@map("analyse")

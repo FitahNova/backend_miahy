@@ -10,7 +10,6 @@ const selectionParametres = {
   majorationSoirPourcent: true,
   heureDebutSoir: true,
   heureOuverture: true,
-  majorationEtrangerPourcent: true,
 } as const;
 
 /** Paramètres en vigueur (ligne unique) ; valeurs par défaut si la ligne manque encore. */
