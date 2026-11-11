@@ -11,6 +11,7 @@ import {
   prendrePassageEnCharge,
 } from "../services/passages.service.js";
 import { ErreurHttp } from "../utils/errors.js";
+import { jourDuCentre } from "../utils/suivis.js";
 import { lireIdentifiant, lireUtilisateur } from "../utils/parametres.js";
 import { EVENEMENTS } from "../realtime/events.js";
 import { diffuser } from "../realtime/sse.js";
@@ -53,9 +54,20 @@ const schemaNouveauPassage = z.object({
   allergies: z.string().trim().max(2000).nullable().optional(),
   sensible: z.boolean().optional(),
   nationalite: z.enum(Nationalite).optional(),
+  // Analyse seule : analyses du catalogue et date de retour du résultat (aujourd'hui ou plus tard).
+  analyses: z.array(z.number().int().positive()).min(1).max(40).optional(),
+  dateRetourResultat: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 }).refine((passage) => passage.orientation != null || passage.praticienId != null, {
   path: ["orientation"],
   message: "Choisissez Médecin ou Sage-femme",
+}).refine(
+  (passage) =>
+    passage.orientation !== Orientation.ANALYSE ||
+    (passage.praticienId == null && (passage.analyses?.length ?? 0) > 0 && passage.dateRetourResultat !== undefined),
+  { path: ["analyses"], message: "Choisissez les analyses et la date de retour" },
+).refine((passage) => !passage.dateRetourResultat || passage.dateRetourResultat >= jourDuCentre(new Date()), {
+  path: ["dateRetourResultat"],
+  message: "La date de retour ne peut pas être passée",
 });
 
 const schemaUrgence = z.object({ urgence: z.boolean() });
@@ -72,7 +84,11 @@ export async function listerFileAttente(requete: Request, reponse: Response) {
 export async function creerPassage(requete: Request, reponse: Response) {
   const donnees = schemaNouveauPassage.parse(requete.body);
   const passage = await creerNouveauPassage(donnees, lireUtilisateur(requete).id);
-  diffuser([EVENEMENTS.FILE_MODIFIEE, EVENEMENTS.SUIVIS_MODIFIES], { passageId: passage.id });
+  // Analyse seule : le passage arrive directement en caisse.
+  diffuser(
+    [EVENEMENTS.FILE_MODIFIEE, EVENEMENTS.SUIVIS_MODIFIES, ...(donnees.orientation === Orientation.ANALYSE ? [EVENEMENTS.CAISSE_MODIFIEE, EVENEMENTS.PHARMACIE_MODIFIEE] : [])],
+    { passageId: passage.id },
+  );
   reponse.status(201).json({ passage });
 }
 

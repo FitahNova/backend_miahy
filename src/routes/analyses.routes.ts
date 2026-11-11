@@ -3,6 +3,8 @@ import { z } from "zod";
 import { DomainePrestation, Role } from "../generated/prisma/client.js";
 import { exigerConnexion, exigerRole } from "../middleware/auth.js";
 import { creerAnalyse, listerAnalyses, modifierAnalyse } from "../services/analyses.service.js";
+import { listerAnalysesProposees } from "../services/resultatsAnalyses.service.js";
+import { SOIGNANTS } from "../config/constants.js";
 import { gererAsync } from "../utils/asyncHandler.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
@@ -49,9 +51,20 @@ function lireAuteur(requete: Request): number {
   return Number(requete.utilisateur.id);
 }
 
-// Catalogue des analyses : Direction seule.
 const routeur = Router();
-routeur.use(exigerConnexion, exigerRole(Role.DIRECTION));
+routeur.use(exigerConnexion);
+
+// Analyses proposées à l'accueil (analyse seule) et en consultation : actives et tarifées.
+routeur.get(
+  "/proposees",
+  exigerRole(Role.SECRETAIRE, Role.DIRECTION, ...SOIGNANTS),
+  gererAsync(async (_requete, reponse) => {
+    reponse.json({ analyses: await listerAnalysesProposees() });
+  }),
+);
+
+// Catalogue des analyses : Direction seule.
+routeur.use(exigerRole(Role.DIRECTION));
 
 routeur.use("/categories", routeurCategoriesPrestation(DomainePrestation.ANALYSE));
 

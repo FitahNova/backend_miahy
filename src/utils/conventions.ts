@@ -11,7 +11,7 @@ export interface Convention {
 }
 
 export interface LigneCouvrable {
-  type: "ACTE" | "MEDICAMENT";
+  type: "ACTE" | "MEDICAMENT" | "ANALYSE"; // les analyses ne sont jamais couvertes par une convention
   serviceId: number | null;
   quantite: number;
   prixUnitaire: number;

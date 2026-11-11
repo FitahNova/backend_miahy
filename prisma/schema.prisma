@@ -99,6 +99,8 @@ model Utilisateur {
 enum Orientation {
   MEDECIN    @map("medecin")
   SAGE_FEMME @map("sage_femme")
+  // Venue pour une analyse seule : la secrétaire saisit les analyses, le patient va directement en caisse.
+  ANALYSE    @map("analyse")
 
   @@map("orientation")
 }
@@ -128,6 +130,7 @@ enum StatutFacture {
 enum TypeLigneFacture {
   ACTE       @map("acte")
   MEDICAMENT @map("medicament")
+  ANALYSE    @map("analyse")
 
   @@map("type_ligne_facture")
 }
@@ -197,6 +200,10 @@ model Passage {
   ordonnance   Ordonnance?
   factures     Facture[]
   rendezVous   RendezVous?
+  // Analyses du passage (analyse seule, ou prescrites en consultation) : date de retour du résultat,
+  // saisie par la secrétaire, puis remise du résultat au patient.
+  dateRetourResultat DateTime? @map("date_retour_resultat") @db.Date
+  resultatRemisLe    DateTime? @map("resultat_remis_le") @db.Timestamptz(6)
 
   @@index([statut])
   @@map("passage")
@@ -334,7 +341,11 @@ model LigneFacture {
   nationalite       Nationalite?
   tauxEtranger      Int?             @map("taux_etranger") @db.SmallInt
   tauxSoir          Int?             @map("taux_soir") @db.SmallInt
+  // Analyse facturée (prix du catalogue, sans majoration étranger ni soir).
+  analyseId         Int?             @map("analyse_id")
+  analyse           Analyse?         @relation(fields: [analyseId], references: [id])
 
+  @@index([analyseId])
   @@map("ligne_facture")
 }
 

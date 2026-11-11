@@ -46,17 +46,50 @@ async function lireActeConsultationParDefaut(client: Prisma.TransactionClient): 
 }
 
 /**
- * Crée la facture d'un passage à la signature de la consultation (R079).
+ * Lignes de facture des analyses : prix du catalogue, sans majoration (ni étranger, ni soir).
+ * @throws 400 ANALYSE_INACTIVE, 409 PRIX_ANALYSE_A_FIXER
+ */
+export async function lignesDesAnalyses(client: Prisma.TransactionClient, analyseIds: number[]) {
+  const identifiants = [...new Set(analyseIds)];
+  const analyses = await client.analyse.findMany({ where: { id: { in: identifiants } } });
+  const parIdentifiant = new Map(analyses.map((analyse) => [analyse.id, analyse]));
+  return identifiants.map((identifiant) => {
+    const analyse = parIdentifiant.get(identifiant);
+    if (!analyse || !analyse.actif) throw new ErreurHttp(400, "ANALYSE_INACTIVE", { analyseId: identifiant });
+    if (analyse.prix === null) throw new ErreurHttp(409, "PRIX_ANALYSE_A_FIXER", { analyse: analyse.nom });
+    return {
+      type: TypeLigneFacture.ANALYSE,
+      analyseId: analyse.id,
+      libelle: analyse.nom.slice(0, 150),
+      quantite: 1,
+      prixUnitaire: analyse.prix,
+      prixBase: analyse.prix,
+    };
+  });
+}
+
+/**
+ * Crée la facture d'un passage à la signature de la consultation (R079), ou à l'arrivée pour une analyse seule.
  * Statut PHARMACIE si une ordonnance doit être préparée, sinon directement À PAYER.
+ * Sans acte, l'acte « Consultation » est facturé par défaut, sauf pour une analyse seule (sansActeParDefaut).
  * À appeler dans une transaction.
  */
 export async function creerFacturePourPassage(
   client: Prisma.TransactionClient,
-  donnees: { passageId: number; patientId: number; actes?: ActeFacture[]; avecOrdonnance: boolean },
+  donnees: {
+    passageId: number;
+    patientId: number;
+    actes?: ActeFacture[];
+    analyses?: number[];
+    avecOrdonnance: boolean;
+    sansActeParDefaut?: boolean;
+  },
 ) {
   const actes = donnees.actes && donnees.actes.length > 0
     ? donnees.actes
-    : [await lireActeConsultationParDefaut(client)];
+    : donnees.sansActeParDefaut
+      ? []
+      : [await lireActeConsultationParDefaut(client)];
 
   const identifiantsServices = [...new Set(actes.map((acte) => acte.serviceId))];
   const services = await client.service.findMany({ where: { id: { in: identifiantsServices } } });
@@ -68,7 +101,7 @@ export async function creerFacturePourPassage(
   ]);
   const maintenant = new Date();
 
-  const lignes = actes.map((acte) => {
+  const lignesActes = actes.map((acte) => {
     const service = servicesParIdentifiant.get(acte.serviceId);
     if (!service || !service.actif) {
       throw new ErreurHttp(400, "SERVICE_INACTIF", { serviceId: acte.serviceId });
@@ -90,6 +123,9 @@ export async function creerFacturePourPassage(
       tauxSoir: tarif.tauxSoir,
     };
   });
+
+  const lignes = [...lignesActes, ...(await lignesDesAnalyses(client, donnees.analyses ?? []))];
+  if (lignes.length === 0) throw new ErreurHttp(400, "FACTURE_VIDE");
 
   const total = lignes.reduce((somme, ligne) => somme + ligne.quantite * ligne.prixUnitaire, 0);
   const numero = await calculerProchainNumeroFacture(client);

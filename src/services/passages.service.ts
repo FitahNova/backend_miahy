@@ -52,6 +52,9 @@ export interface DonneesNouveauPassage {
   allergies?: string | null;
   sensible?: boolean;
   nationalite?: Nationalite;
+  /** Analyse seule (orientation ANALYSE) : analyses à facturer et date de retour du résultat (AAAA-MM-JJ). */
+  analyses?: number[];
+  dateRetourResultat?: string;
 }
 
 function ajouterIndicateursAttente<T extends { statut: StatutPassage; heureArrivee: Date }>(passage: T) {
@@ -208,16 +211,43 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
     }
   }
 
+  // Analyse seule : pas de médecin, le patient va directement en caisse (paiement avant l'analyse).
+  const analyseSeule = donnees.orientation === Orientation.ANALYSE;
+  if (analyseSeule && (!donnees.analyses || donnees.analyses.length === 0 || !donnees.dateRetourResultat)) {
+    throw new ErreurHttp(400, "ANALYSES_REQUISES");
+  }
+
   const passage = await transaction.passage.create({
     data: {
       patientId: donnees.patientId,
       motif: donnees.motif,
       orientation: donnees.orientation ?? null,
-      urgence: donnees.urgence ?? false,
-      praticienId: donnees.praticienId ?? null,
+      urgence: analyseSeule ? false : (donnees.urgence ?? false),
+      praticienId: analyseSeule ? null : (donnees.praticienId ?? null),
+      ...(analyseSeule
+        ? { statut: StatutPassage.CAISSE, dateRetourResultat: new Date(`${donnees.dateRetourResultat}T00:00:00Z`) }
+        : {}),
     },
     select: selectionPassage,
   });
+  if (analyseSeule) {
+    const facture = await creerFacturePourPassage(transaction, {
+      passageId: passage.id,
+      patientId: donnees.patientId,
+      analyses: donnees.analyses,
+      avecOrdonnance: false,
+      sansActeParDefaut: true,
+    });
+    if (auteurId !== undefined) {
+      await enregistrerAudit(transaction, {
+        utilisateurId: auteurId,
+        action: "ARRIVEE_ANALYSE",
+        entite: "passage",
+        entiteId: passage.id,
+        detail: { facture: facture.numero, total: facture.total, analyses: donnees.analyses?.length ?? 0, dateRetour: donnees.dateRetourResultat },
+      });
+    }
+  }
   if (donnees.constantes && Object.keys(donnees.constantes).length > 0) {
     await transaction.consultation.create({
       data: {
@@ -282,6 +312,7 @@ export async function terminerPassageDansTransaction(
   passageId: number,
   utilisateurId: number,
   actes?: ActeFacture[],
+  analyses?: number[],
 ) {
   const passage = await transaction.passage.findUnique({
     where: { id: passageId },
@@ -312,6 +343,7 @@ export async function terminerPassageDansTransaction(
     passageId,
     patientId: passage.patientId,
     actes,
+    analyses,
     avecOrdonnance,
   });
 

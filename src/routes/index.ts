@@ -20,6 +20,7 @@ import routeurSuivis from "./suivis.routes.js";
 import routeurCharges from "./charges.routes.js";
 import routeurAudit from "./audit.routes.js";
 import routeurAnalyses from "./analyses.routes.js";
+import routeurResultatsAnalyses from "./resultatsAnalyses.routes.js";
 
 const routeur = Router();
 
@@ -45,5 +46,6 @@ routeur.use("/suivis", routeurSuivis);
 routeur.use("/charges", routeurCharges);
 routeur.use("/audit", routeurAudit);
 routeur.use("/analyses", routeurAnalyses);
+routeur.use("/resultats-analyses", routeurResultatsAnalyses);
 
 export default routeur;

@@ -14,6 +14,8 @@ const schemaConsultation = z
   .object({
     motif: z.string().trim().min(1).max(255).optional(),
     actes: z.array(z.number().int().positive()).min(1).max(20).optional(),
+    // Analyses prescrites : facultatives (liste vide = aucune).
+    analyses: z.array(z.number().int().positive()).max(40).optional(),
     tension: z.string().trim().regex(/^\d{2,3}\/\d{2,3}$/, "Format attendu : 120/80").nullish(),
     poidsKg: z.number().positive().max(400).nullish(),
     pouls: z.number().int().min(20).max(250).nullish(),

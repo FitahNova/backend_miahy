@@ -23,6 +23,8 @@ export interface DonneesConsultation {
   motif?: string;
   /** Actes réalisés (identifiants de services) : facturés à la signature. */
   actes?: number[];
+  /** Analyses prescrites (identifiants du catalogue) : facturées à la signature, prix du catalogue. */
+  analyses?: number[];
   tension?: string | null;
   poidsKg?: number | null;
   pouls?: number | null;
@@ -54,11 +56,17 @@ function verifierAccesAuPassage(passage: { praticienId: number | null }, utilisa
  */
 interface Brouillon {
   actes?: number[];
+  analyses?: number[];
 }
 
 export function lireActes(brouillon: Prisma.JsonValue | null | undefined): number[] {
   const actes = (brouillon as Brouillon | null)?.actes;
   return Array.isArray(actes) ? actes.filter((id) => Number.isInteger(id)) : [];
+}
+
+export function lireAnalyses(brouillon: Prisma.JsonValue | null | undefined): number[] {
+  const analyses = (brouillon as Brouillon | null)?.analyses;
+  return Array.isArray(analyses) ? analyses.filter((id) => Number.isInteger(id)) : [];
 }
 
 const NOM_ACTE_PAR_DEFAUT = "Consultation";
@@ -98,7 +106,7 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
   // Trace de la lecture avant de renvoyer les données médicales.
   await journaliserAcces(utilisateur.id, "LECTURE_CONSULTATION", "passage", passageId);
 
-  const [consultation, visites, services, prochainRendezVous, parametresTarif] = await Promise.all([
+  const [consultation, visites, services, prochainRendezVous, parametresTarif, analyses] = await Promise.all([
     prisma.consultation.findUnique({ where: { passageId } }),
     prisma.consultation.findMany({
       where: { signeeLe: { not: null }, passage: { patientId: passage.patient.id, id: { not: passageId } } },
@@ -116,6 +124,12 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
     prisma.service.findMany({ where: { actif: true }, orderBy: { id: "asc" }, select: { id: true, nom: true, prix: true } }),
     prochainRendezVousDuPatient(passage.patient.id),
     lireParametresTarification(),
+    // Analyses proposées au praticien : actives et tarifées (une analyse « à fixer » ne se prescrit pas encore).
+    prisma.analyse.findMany({
+      where: { actif: true, prix: { not: null } },
+      orderBy: { nom: "asc" },
+      select: { id: true, code: true, nom: true, prix: true, instruction: true },
+    }),
   ]);
 
   // Par défaut, l'acte « Consultation » est coché (maquette). Le nom peut avoir été retouché
@@ -127,9 +141,11 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
   const facturables = new Set(services.filter((service) => service.prix !== null).map((service) => service.id));
   const actesEnregistres = consultation ? lireActes(consultation.brouillon).filter((id) => facturables.has(id)) : [];
   const actes = actesEnregistres.length > 0 ? actesEnregistres : acteParDefaut ? [acteParDefaut.id] : [];
+  const prescriptibles = new Set(analyses.map((analyse) => analyse.id));
+  const analysesEnregistrees = consultation ? lireAnalyses(consultation.brouillon).filter((id) => prescriptibles.has(id)) : [];
 
   return {
-    consultation: consultation && { ...consultation, actes },
+    consultation: consultation && { ...consultation, actes, analyses: analysesEnregistrees },
     contexte: {
       motif: passage.motif,
       patient: passage.patient,
@@ -144,6 +160,7 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
             : calculerTarif(service.prix, { nationalite: passage.patient.nationalite, date: new Date() }, parametresTarif),
       })),
       actesParDefaut: actes,
+      analyses,
     },
   };
 }
@@ -169,7 +186,7 @@ export async function enregistrerConsultationDuPassage(
     verifierMotifGrossesse(donnees.motif, passage.patient);
     verifierMotifGrossesse(donnees.suiviMotif, passage.patient);
 
-    const { motif, actes, ...constantes } = donnees;
+    const { motif, actes, analyses, ...constantes } = donnees;
     if (actes) {
       // Les actes viennent du catalogue de la Direction (Paramètres → Services) : actifs et tarifés seulement.
       const services = await transaction.service.findMany({ where: { id: { in: actes } }, select: { nom: true, actif: true, prix: true } });
@@ -179,10 +196,28 @@ export async function enregistrerConsultationDuPassage(
       const aFixer = services.find((service) => service.prix === null);
       if (aFixer) throw new ErreurHttp(409, "PRIX_SERVICE_A_FIXER", { service: aFixer.nom });
     }
+    if (analyses && analyses.length > 0) {
+      // Analyses du catalogue de la Direction : actives et tarifées seulement.
+      const trouvees = await transaction.analyse.findMany({ where: { id: { in: analyses } }, select: { nom: true, actif: true, prix: true } });
+      if (trouvees.length !== new Set(analyses).size || trouvees.some((analyse) => !analyse.actif)) {
+        throw new ErreurHttp(400, "ANALYSE_INACTIVE");
+      }
+      const aFixer = trouvees.find((analyse) => analyse.prix === null);
+      if (aFixer) throw new ErreurHttp(409, "PRIX_ANALYSE_A_FIXER", { analyse: aFixer.nom });
+    }
     if (motif !== undefined) {
       await transaction.passage.update({ where: { id: passageId }, data: { motif } });
     }
-    const data = { ...constantes, ...(actes ? { brouillon: { actes } } : {}) };
+    // Le brouillon garde actes et analyses : on complète ce qui n'est pas envoyé avec la valeur déjà enregistrée.
+    let brouillon: Brouillon | undefined;
+    if (actes !== undefined || analyses !== undefined) {
+      const actuelle = await transaction.consultation.findUnique({ where: { passageId }, select: { brouillon: true } });
+      brouillon = {
+        actes: actes ?? lireActes(actuelle?.brouillon),
+        analyses: analyses ?? lireAnalyses(actuelle?.brouillon),
+      };
+    }
+    const data = { ...constantes, ...(brouillon ? { brouillon: { ...brouillon } } : {}) };
 
     const modifiee = await transaction.consultation.updateMany({
       where: { passageId, signeeLe: null },
@@ -208,7 +243,7 @@ export async function enregistrerConsultationDuPassage(
       entiteId: passageId,
     });
 
-    return { ...resultat, actes: lireActes(resultat.brouillon) };
+    return { ...resultat, actes: lireActes(resultat.brouillon), analyses: lireAnalyses(resultat.brouillon) };
   }, OPTIONS_TRANSACTION);
 }
 
@@ -236,6 +271,7 @@ export async function signerEtTerminerConsultation(passageId: number, utilisateu
     if (!existante.diagnostic?.trim()) throw new ErreurHttp(400, "DIAGNOSTIC_REQUIS");
     const actes = lireActes(existante.brouillon);
     if (actes.length === 0) throw new ErreurHttp(400, "ACTE_REQUIS");
+    const analyses = lireAnalyses(existante.brouillon);
 
     const signee = await transaction.consultation.updateMany({
       where: { passageId, signeeLe: null },
@@ -249,6 +285,7 @@ export async function signerEtTerminerConsultation(passageId: number, utilisateu
       passageId,
       utilisateur.id,
       actes.map((serviceId) => ({ serviceId, quantite: 1 })),
+      analyses,
     );
 
     // « Ce patient doit-il être revu ? » Oui : rendez-vous avec le signataire, et un suivi pour le relancer
@@ -282,6 +319,6 @@ export async function signerEtTerminerConsultation(passageId: number, utilisateu
     });
 
     const signeeFinale = await transaction.consultation.findUniqueOrThrow({ where: { passageId } });
-    return { ...signeeFinale, actes };
+    return { ...signeeFinale, actes, analyses };
   }, OPTIONS_TRANSACTION);
 }
