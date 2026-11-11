@@ -6,15 +6,27 @@ import { FORMAT_HEURE, POURCENTAGE_MAX } from "../utils/tarification.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
 
+// Instruction vide = aucune (null).
+const instruction = z
+  .string()
+  .trim()
+  .max(500)
+  .nullish()
+  .transform((texte) => (texte ? texte : texte === undefined ? undefined : null));
+
 const schemaCreation = z.object({
   nom: z.string().trim().min(2).max(100),
   prix: z.number().int().nonnegative().nullish(),
+  categorieId: z.number().int().positive().nullish(),
+  instruction,
 });
 
 const schemaModification = z.object({
   nom: z.string().trim().min(2).max(100).optional(),
   prix: z.number().int().nonnegative().nullable().optional(),
   actif: z.boolean().optional(),
+  categorieId: z.number().int().positive().nullable().optional(),
+  instruction,
 });
 
 // Paramètres de tarification : pourcentages entiers de 0 à 500, heures « HH:mm », ouverture avant le soir.
@@ -64,7 +76,10 @@ export async function enregistrerTarification(requete: Request, reponse: Respons
 
 export async function ajouterService(requete: Request, reponse: Response) {
   const donnees = schemaCreation.parse(requete.body);
-  const service = await creerService({ nom: donnees.nom, prix: donnees.prix ?? null }, lireAuteur(requete));
+  const service = await creerService(
+    { nom: donnees.nom, prix: donnees.prix ?? null, categorieId: donnees.categorieId ?? null, instruction: donnees.instruction ?? null },
+    lireAuteur(requete),
+  );
   reponse.status(201).json({ service });
 }
 

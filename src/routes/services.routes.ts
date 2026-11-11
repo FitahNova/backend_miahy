@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { Role } from "../generated/prisma/client.js";
+import { DomainePrestation, Role } from "../generated/prisma/client.js";
+import { routeurCategoriesPrestation } from "./categoriesPrestation.routes.js";
 import { exigerConnexion, exigerRole } from "../middleware/auth.js";
 import { gererAsync } from "../utils/asyncHandler.js";
 import {
@@ -16,6 +17,9 @@ const DIRECTION_SEULE = [Role.DIRECTION];
 
 const routeur = Router();
 routeur.use(exigerConnexion);
+
+// Catégories des services (filtre de la liste) : Direction seule.
+routeur.use("/categories", exigerRole(...DIRECTION_SEULE), routeurCategoriesPrestation(DomainePrestation.SERVICE));
 
 // Lecture : aussi le Médecin chef, pour choisir le service couvert d'un partenaire.
 routeur.get("/", exigerRole(...DIRECTION_SEULE, Role.MEDECIN_CHEF), gererAsync(obtenirServices));

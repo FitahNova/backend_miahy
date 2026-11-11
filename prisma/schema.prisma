@@ -470,10 +470,49 @@ model Service {
   nom    String         @unique @db.VarChar(100)
   prix   Int?
   actif  Boolean        @default(true)
+  // Catégorie (filtre de la liste) et instruction (préparation, consigne) : facultatives.
+  categorieId Int?                 @map("categorie_id")
+  categorie   CategoriePrestation? @relation(fields: [categorieId], references: [id])
+  instruction String?              @db.VarChar(500)
   lignes LigneFacture[]
   partenairesCouvrant Partenaire[]
 
   @@map("service")
+}
+
+// Catégories des services et des analyses : chaque domaine a sa propre liste (un même nom peut exister dans les deux).
+enum DomainePrestation {
+  SERVICE @map("service")
+  ANALYSE @map("analyse")
+
+  @@map("domaine_prestation")
+}
+
+model CategoriePrestation {
+  id       Int               @id @default(autoincrement())
+  nom      String            @db.VarChar(80)
+  domaine  DomainePrestation
+  services Service[]
+  analyses Analyse[]
+
+  @@unique([domaine, nom])
+  @@map("categorie_prestation")
+}
+
+// Analyses de laboratoire proposées par le centre (Direction) : code et nom uniques, tarif vide = « à fixer ».
+model Analyse {
+  id          Int                  @id @default(autoincrement())
+  code        String               @unique @db.VarChar(20)
+  nom         String               @unique @db.VarChar(150)
+  prix        Int?
+  categorieId Int?                 @map("categorie_id")
+  categorie   CategoriePrestation? @relation(fields: [categorieId], references: [id])
+  instruction String?              @db.VarChar(500)
+  actif       Boolean              @default(true)
+  creeLe      DateTime             @default(now()) @map("cree_le") @db.Timestamptz(6)
+
+  @@index([categorieId])
+  @@map("analyse")
 }
 
 // Journal en ajout seul : un déclencheur en base refuse UPDATE et DELETE (migration journal_audit_inalterable).
