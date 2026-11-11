@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
+import { PeriodeGarde } from "../generated/prisma/client.js";
 import {
   ajouterPersonneGarde,
   copierSemaine,
@@ -16,7 +17,9 @@ import { lireIdentifiant } from "../utils/parametres.js";
 
 const schemaAjout = z.object({
   utilisateurId: z.number().int().positive(),
+  periode: z.enum(PeriodeGarde),
 });
+const schemaPeriode = z.enum(PeriodeGarde);
 
 const schemaCopie = z.object({
   debutSource: z.string(),
@@ -57,14 +60,15 @@ export async function listerPersonnesGardes(_requete: Request, reponse: Response
 }
 
 export async function ajouterGardeJour(requete: Request, reponse: Response) {
-  const { utilisateurId } = schemaAjout.parse(requete.body);
-  const resultat = await ajouterPersonneGarde(String(requete.params.date), utilisateurId, lireUtilisateurId(requete));
+  const { utilisateurId, periode } = schemaAjout.parse(requete.body);
+  const resultat = await ajouterPersonneGarde(String(requete.params.date), periode, utilisateurId, lireUtilisateurId(requete));
   reponse.status(201).json(resultat);
 }
 
 export async function retirerGardeJour(requete: Request, reponse: Response) {
   const resultat = await retirerPersonneGarde(
     String(requete.params.date),
+    schemaPeriode.parse(requete.params.periode),
     lireIdentifiant(requete.params.utilisateurId),
     lireUtilisateurId(requete),
   );

@@ -556,14 +556,23 @@ enum Civilite {
   @@map("civilite")
 }
 
-model GardeJour {
-  id            Int         @id @default(autoincrement())
-  date          DateTime    @db.Date
-  utilisateurId Int         @map("utilisateur_id")
-  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id])
-  creeLe        DateTime    @default(now()) @map("cree_le") @db.Timestamptz(6)
+// Garde de jour (7 h 30 à 18 h) ou de nuit (18 h à 7 h 30 le lendemain), datée du jour où elle commence.
+enum PeriodeGarde {
+  JOUR @map("jour")
+  NUIT @map("nuit")
 
-  @@unique([date, utilisateurId])
+  @@map("periode_garde")
+}
+
+model GardeJour {
+  id            Int          @id @default(autoincrement())
+  date          DateTime     @db.Date
+  periode       PeriodeGarde @default(JOUR)
+  utilisateurId Int          @map("utilisateur_id")
+  utilisateur   Utilisateur  @relation(fields: [utilisateurId], references: [id])
+  creeLe        DateTime     @default(now()) @map("cree_le") @db.Timestamptz(6)
+
+  @@unique([date, utilisateurId, periode])
   @@map("garde_jour")
 }
 

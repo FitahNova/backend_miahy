@@ -1,6 +1,7 @@
 import { prisma } from "../config/prisma.js";
-import { Role } from "../generated/prisma/client.js";
+import { PeriodeGarde, Role } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
+import { compterGardes, type PersonneGarde } from "../utils/gardes.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { CABINET } from "./impression.service.js";
@@ -34,45 +35,32 @@ function verifierJourModifiable(date: string): void {
   if (date < aujourdhuiMada()) throw new ErreurHttp(400, "GARDE_JOUR_PASSE");
 }
 
-type PersonneGarde = { id: number; civilite: string | null; nom: string; prenom: string | null };
+const SELECTION_PERSONNE = { select: { id: true, civilite: true, nom: true, prenom: true } } as const;
 
-// Semaine de 7 jours à partir du lundi : pour chaque jour, la liste des personnes de garde.
+// Semaine de 7 jours à partir du lundi : pour chaque jour, les personnes de garde de jour et de nuit.
 export async function lireSemaine(debut: string) {
   const premier = lireJour(debut);
   const gardes = await prisma.gardeJour.findMany({
     where: { date: { gte: premier, lt: ajouterJours(premier, 7) } },
     orderBy: [{ date: "asc" }, { id: "asc" }],
-    select: { date: true, utilisateur: { select: { id: true, civilite: true, nom: true, prenom: true } } },
+    select: { date: true, periode: true, utilisateur: SELECTION_PERSONNE },
   });
 
-  const parDate = new Map<string, PersonneGarde[]>();
+  const parCreneau = new Map<string, PersonneGarde[]>();
   for (const garde of gardes) {
-    const cle = versTexte(garde.date);
-    parDate.set(cle, [...(parDate.get(cle) ?? []), garde.utilisateur]);
+    const cle = `${versTexte(garde.date)}|${garde.periode}`;
+    parCreneau.set(cle, [...(parCreneau.get(cle) ?? []), garde.utilisateur]);
   }
 
   const jours = Array.from({ length: 7 }, (_, index) => {
     const date = versTexte(ajouterJours(premier, index));
-    return { date, personnes: parDate.get(date) ?? [] };
+    return { date, jour: parCreneau.get(`${date}|JOUR`) ?? [], nuit: parCreneau.get(`${date}|NUIT`) ?? [] };
   });
 
-  // Nombre de gardes de la semaine par personne.
-  const compteurs = new Map<number, PersonneGarde & { nombre: number }>();
-  for (const jour of jours) {
-    for (const personne of jour.personnes) {
-      const existant = compteurs.get(personne.id);
-      compteurs.set(personne.id, { ...personne, nombre: (existant?.nombre ?? 0) + 1 });
-    }
-  }
-
-  return {
-    debut,
-    jours,
-    compteurs: [...compteurs.values()].sort((a, b) => b.nombre - a.nombre),
-  };
+  return { debut, jours, compteurs: compterGardes(gardes) };
 }
 
-// Nombre de gardes par personne sur un mois civil, en incluant les personnes à zéro garde.
+// Gardes de jour, de nuit et au total par personne sur un mois civil, personnes à zéro comprises.
 export async function lireCompteursMois(mois: string) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mois)) throw new ErreurHttp(400, "DATE_INVALIDE");
   const [annee, numeroMois] = mois.split("-").map(Number);
@@ -83,19 +71,10 @@ export async function lireCompteursMois(mois: string) {
     listerPersonnesDeGarde(),
     prisma.gardeJour.findMany({
       where: { date: { gte: debut, lt: fin } },
-      select: { utilisateur: { select: { id: true, civilite: true, nom: true, prenom: true } } },
+      select: { periode: true, utilisateur: SELECTION_PERSONNE },
     }),
   ]);
-  const compteurs = new Map<number, PersonneGarde & { nombre: number }>(
-    personnes.map((personne) => [personne.id, { ...personne, nombre: 0 }]),
-  );
-
-  for (const { utilisateur } of gardes) {
-    const existant = compteurs.get(utilisateur.id);
-    compteurs.set(utilisateur.id, { ...utilisateur, nombre: (existant?.nombre ?? 0) + 1 });
-  }
-
-  return [...compteurs.values()].sort((a, b) => b.nombre - a.nombre || a.nom.localeCompare(b.nom));
+  return compterGardes(gardes, personnes);
 }
 
 // Personnes pouvant être de garde (actives uniquement).
@@ -107,8 +86,8 @@ export function listerPersonnesDeGarde() {
   });
 }
 
-// Ajoute une personne à un jour (aujourd'hui ou à venir), sans toucher aux autres personnes du jour.
-export async function ajouterPersonneGarde(date: string, utilisateurId: number, auteurId: number) {
+// Ajoute une personne à la garde de jour ou de nuit d'un jour (aujourd'hui ou à venir), sans toucher aux autres.
+export async function ajouterPersonneGarde(date: string, periode: PeriodeGarde, utilisateurId: number, auteurId: number) {
   const jour = lireJour(date);
   verifierJourModifiable(date);
 
@@ -123,8 +102,8 @@ export async function ajouterPersonneGarde(date: string, utilisateurId: number, 
 
   return prisma.$transaction(async (transaction) => {
     await transaction.gardeJour.upsert({
-      where: { date_utilisateurId: { date: jour, utilisateurId } },
-      create: { date: jour, utilisateurId },
+      where: { date_utilisateurId_periode: { date: jour, utilisateurId, periode } },
+      create: { date: jour, utilisateurId, periode },
       update: {},
     });
 
@@ -133,20 +112,20 @@ export async function ajouterPersonneGarde(date: string, utilisateurId: number, 
       action: "AJOUT_GARDE",
       entite: "garde",
       entiteId: utilisateurId,
-      detail: { date },
+      detail: { date, periode },
     });
 
-    return { date, utilisateurId };
+    return { date, periode, utilisateurId };
   }, OPTIONS_TRANSACTION);
 }
 
-// Retire une personne d'un jour (aujourd'hui ou à venir seulement).
-export async function retirerPersonneGarde(date: string, utilisateurId: number, auteurId: number) {
+// Retire une personne de la garde de jour ou de nuit d'un jour (aujourd'hui ou à venir seulement).
+export async function retirerPersonneGarde(date: string, periode: PeriodeGarde, utilisateurId: number, auteurId: number) {
   const jour = lireJour(date);
   verifierJourModifiable(date);
 
   return prisma.$transaction(async (transaction) => {
-    const resultat = await transaction.gardeJour.deleteMany({ where: { date: jour, utilisateurId } });
+    const resultat = await transaction.gardeJour.deleteMany({ where: { date: jour, utilisateurId, periode } });
     if (resultat.count === 0) throw new ErreurHttp(404, "GARDE_INTROUVABLE");
 
     await enregistrerAudit(transaction, {
@@ -154,10 +133,10 @@ export async function retirerPersonneGarde(date: string, utilisateurId: number, 
       action: "RETRAIT_GARDE",
       entite: "garde",
       entiteId: utilisateurId,
-      detail: { date },
+      detail: { date, periode },
     });
 
-    return { date, utilisateurId };
+    return { date, periode, utilisateurId };
   }, OPTIONS_TRANSACTION);
 }
 
@@ -169,13 +148,14 @@ export async function copierSemaine(debutSource: string, debutCible: string, aut
   const aujourdhui = aujourdhuiMada();
 
   const jourCibles = source.jours
-    .map((jour, index) => ({ date: ajouterJours(premierCible, index), personnes: jour.personnes }))
-    .filter((jour) => jour.personnes.length > 0)
+    .map((jour, index) => ({ date: ajouterJours(premierCible, index), jour: jour.jour, nuit: jour.nuit }))
+    .filter((jour) => jour.jour.length + jour.nuit.length > 0)
     .filter((jour) => versTexte(jour.date) >= aujourdhui);
 
-  const aCreer = jourCibles.flatMap((jour) =>
-    jour.personnes.map((personne) => ({ date: jour.date, utilisateurId: personne.id })),
-  );
+  const aCreer = jourCibles.flatMap((jour) => [
+    ...jour.jour.map((personne) => ({ date: jour.date, periode: PeriodeGarde.JOUR, utilisateurId: personne.id })),
+    ...jour.nuit.map((personne) => ({ date: jour.date, periode: PeriodeGarde.NUIT, utilisateurId: personne.id })),
+  ]);
 
   return prisma.$transaction(async (transaction) => {
     if (jourCibles.length > 0) {

@@ -25,10 +25,10 @@ routeur.get("/personnes", exigerRole(...SOIGNANTS), gererAsync(listerPersonnesGa
 routeur.get("/reglement", exigerRole(...SOIGNANTS), gererAsync(lireReglementGardes));
 routeur.get("/impression", exigerRole(...SOIGNANTS), gererAsync(imprimerGardes));
 
-// Modification : médecin chef seulement.
+// Modification : médecin chef seulement. Période : JOUR (7 h 30 à 18 h) ou NUIT (18 h à 7 h 30).
 routeur.post("/jour/:date/personnes", exigerRole(Role.MEDECIN_CHEF), gererAsync(ajouterGardeJour));
 routeur.delete(
-  "/jour/:date/personnes/:utilisateurId",
+  "/jour/:date/:periode/personnes/:utilisateurId",
   exigerRole(Role.MEDECIN_CHEF),
   gererAsync(retirerGardeJour),
 );
