@@ -199,7 +199,8 @@ export async function obtenirRecuFacture(factureId: number) {
   const facture = await prisma.facture.findUnique({
     where: { id: factureId },
     include: {
-      patient: { select: { numeroDossier: true, nom: true, prenom: true } },
+      // Téléphone : repris sur la lettre d'engagement de paiement.
+      patient: { select: { numeroDossier: true, nom: true, prenom: true, telephone: true } },
       passage: { select: { heureArrivee: true } },
       lignes: { orderBy: { id: "asc" } },
       paiements: {
