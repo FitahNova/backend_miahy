@@ -6,7 +6,8 @@ import { gererAsync } from "../utils/asyncHandler.js";
 import { ajouterCorrection, obtenirDossier } from "../controllers/dossier.controller.js";
 
 // La secrétaire ouvre le dossier sans son contenu médical (diagnostics, ordonnances, maladies, traitements).
-const ROLES_DOSSIER = [Role.DIRECTION, ...SOIGNANTS, Role.SECRETAIRE];
+// La Direction n'a pas accès au dossier patient (décision du 12/11/2026) : elle voit la liste des patients seulement.
+const ROLES_DOSSIER = [...SOIGNANTS, Role.SECRETAIRE];
 
 const routeur = Router();
 routeur.use(exigerConnexion);
