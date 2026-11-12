@@ -65,7 +65,8 @@ export async function listerPatients(requete: Request, reponse: Response) {
 }
 
 export async function obtenirPatient(requete: Request, reponse: Response) {
-  const patient = await obtenirPatientParIdentifiant(lireIdentifiant(requete.params.id), lireRole(requete));
+  const role = lireRole(requete);
+  const patient = await obtenirPatientParIdentifiant(lireIdentifiant(requete.params.id), role);
   reponse.json({ patient });
 }
 
@@ -86,7 +87,13 @@ export async function modifierPatient(requete: Request, reponse: Response) {
   const { age, uniteAge, ...donnees } = schemaModificationPatient.parse(requete.body);
   const dateNaissance = naissanceDepuisSaisie({ dateNaissance: donnees.dateNaissance, age, uniteAge });
   const utilisateur = lireUtilisateur(requete);
-  if (!estClinique(utilisateur.role) && CHAMPS_CLINIQUES.some((champ) => donnees[champ] !== undefined)) {
+  // Secrétaire : allergies et sensibilité seulement (pas maladies ni traitements). Direction : aucun champ clinique.
+  const interdits = estClinique(utilisateur.role)
+    ? []
+    : utilisateur.role === Role.SECRETAIRE
+      ? (["maladies", "traitements"] as const)
+      : CHAMPS_CLINIQUES;
+  if (interdits.some((champ) => donnees[champ] !== undefined)) {
     throw new ErreurHttp(403, "CHAMPS_CLINIQUES_INTERDITS");
   }
   // Un rôle qui ne voit pas le téléphone ne peut pas le changer (ni l'effacer sans le savoir).

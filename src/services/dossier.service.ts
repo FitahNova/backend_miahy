@@ -14,9 +14,10 @@ export interface UtilisateurConsultant {
   role: Role;
 }
 
-// Maquette : les données cliniques (mesures, prescriptions, allergies…) sont visibles de tous les rôles
-// sauf la Direction. Les gestes de soin (corriger une consultation) restent aux soignants.
-export const estClinique = (role: Role) => role !== Role.DIRECTION;
+// Contenu médical (diagnostics, consultations, ordonnances, maladies, traitements, mesures) : soignants seulement.
+export const estClinique = (role: Role) => (SOIGNANTS as readonly Role[]).includes(role);
+// Alertes de sécurité (allergies, sensibilité) : aussi pour la secrétaire, qui les relève à l'arrivée. Pas la Direction.
+export const voitAlertes = (role: Role) => estClinique(role) || role === Role.SECRETAIRE;
 export const estSoignant = (role: Role) => (SOIGNANTS as readonly Role[]).includes(role);
 
 const LIBELLES_CANAL: Record<string, string> = { APPEL: "Appel", SMS: "SMS", WHATSAPP: "WhatsApp", AUTRE: "Autre", VISITE: "Visite" };
@@ -63,6 +64,17 @@ interface Evenement {
 }
 
 export async function lireDossierPatient(patientId: number, utilisateur: UtilisateurConsultant) {
+  const soignant = estSoignant(utilisateur.role);
+  // Médecin chef : tout le dossier, pour prendre ou réaffecter les patients et rendez-vous de ses collègues.
+  const restreint = soignant && utilisateur.role !== Role.MEDECIN_CHEF;
+  if (restreint) {
+    const priseEnCharge = await prisma.passage.findFirst({
+      where: { patientId, praticienId: utilisateur.id },
+      select: { id: true },
+    });
+    if (!priseEnCharge) throw new ErreurHttp(403, "PATIENT_NON_ASSIGNE");
+  }
+
   const patient = await prisma.patient.findUnique({
     where: { id: patientId },
     include: { programme: { select: { id: true, nom: true } } },
@@ -75,12 +87,11 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
   await journaliserAcces(utilisateur.id, "LECTURE_DOSSIER", "patient", patientId);
 
   const clinique = estClinique(utilisateur.role);
-  const soignant = estSoignant(utilisateur.role);
   const visibles = coordonneesVisibles(utilisateur.role); // R024
 
   const [passages, rendezVous, suivis, modifications] = await Promise.all([
     prisma.passage.findMany({
-      where: { patientId },
+      where: { patientId, ...(restreint ? { praticienId: utilisateur.id } : {}) },
       orderBy: { heureArrivee: "desc" },
       select: {
         id: true,
@@ -137,19 +148,19 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
       },
     }),
     prisma.rendezVous.findMany({
-      where: { patientId },
+      where: { patientId, ...(restreint ? { praticienId: utilisateur.id } : {}) },
       orderBy: { dateHeure: "asc" },
       select: { id: true, dateHeure: true, motif: true, statut: true, praticien: { select: { nom: true } } },
     }),
     prisma.suivi.findMany({
-      where: { patientId },
+      where: { patientId, ...(restreint ? { creeParId: utilisateur.id } : {}) },
       select: {
         type: { select: { nom: true } },
         contacts: { select: { canal: true, resultat: true, date: true } },
       },
     }),
     prisma.journalAudit.findMany({
-      where: { entite: "patient", entiteId: patientId, action: "PATIENT_MODIFIE" },
+      where: { entite: "patient", entiteId: patientId, action: "PATIENT_MODIFIE", ...(restreint ? { utilisateurId: utilisateur.id } : {}) },
       orderBy: { date: "desc" },
       // Toutes les modifications : le dossier les affiche 10 par page.
       select: { date: true, detail: true, utilisateur: { select: { nom: true } } },
@@ -180,7 +191,7 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
   // datées de la signature, ou de l'arrivée tant que la consultation n'est pas signée.
   const aDesMesures = (c: (typeof passages)[number]["consultation"]) =>
     Boolean(c && (c.tension || c.poidsKg !== null || c.pouls !== null || c.temperature !== null || c.spo2 !== null || c.glycemie !== null));
-  const mesures = clinique && utilisateur.role !== Role.SECRETAIRE
+  const mesures = clinique
     ? passages
         .filter((passage) => aDesMesures(passage.consultation))
         .map((passage) => ({ passage, date: passage.consultation?.signeeLe ?? passage.heureArrivee }))
@@ -338,16 +349,16 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
       // R024 : seul le téléphone est masqué aux soignants ; le quartier reste visible (comme dans la liste).
       telephone: visibles ? patient.telephone : null,
       adresse: patient.adresse,
-      allergies: clinique ? patient.allergies : null,
+      allergies: voitAlertes(utilisateur.role) ? patient.allergies : null,
       maladies: clinique ? patient.maladies : null,
       traitements: clinique ? patient.traitements : null,
-      sensible: patient.sensible,
+      sensible: voitAlertes(utilisateur.role) ? patient.sensible : false,
       programmeId: patient.programmeId,
       programme: patient.programme,
       financement: patient.financement,
       actif: patient.actif,
     },
-    droits: { clinique, soignant, coordonneesVisibles: visibles },
+    droits: { clinique, alertes: voitAlertes(utilisateur.role), soignant, coordonneesVisibles: visibles },
     synthese: {
       derniereConsultation,
       prochainSuivi,

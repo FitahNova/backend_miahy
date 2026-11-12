@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { PREFIXE_NUMERO_DOSSIER, TAILLE_PAGE } from "../config/constants.js";
+import { PREFIXE_NUMERO_DOSSIER, SOIGNANTS, TAILLE_PAGE } from "../config/constants.js";
 import { Role } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
@@ -134,9 +134,13 @@ export function coordonneesVisibles(role: Role): boolean {
 export function masquerCoordonnees<
   T extends { telephone: string | null; adresse: string | null },
 >(patient: T, role: Role): T {
-  if (coordonneesVisibles(role)) return patient;
-  // Seul le téléphone est masqué : le quartier reste utile à la prise en charge.
-  return { ...patient, telephone: null };
+  const coordonnees = coordonneesVisibles(role) ? patient : { ...patient, telephone: null };
+  if ((SOIGNANTS as readonly Role[]).includes(role)) return coordonnees as T;
+  const { allergies, maladies: _maladies, traitements: _traitements, sensible, ...identite } = coordonnees as T & {
+    allergies?: unknown; maladies?: unknown; traitements?: unknown; sensible?: unknown;
+  };
+  // Secrétaire : allergies et sensibilité (relevées à l'arrivée), jamais maladies ni traitements. Direction : rien de clinique.
+  return (role === Role.SECRETAIRE ? { ...identite, allergies, sensible } : identite) as T;
 }
 
 /**

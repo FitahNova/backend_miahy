@@ -5,7 +5,7 @@ import { exigerConnexion, exigerRole } from "../middleware/auth.js";
 import { gererAsync } from "../utils/asyncHandler.js";
 import { ajouterCorrection, obtenirDossier } from "../controllers/dossier.controller.js";
 
-// La secrétaire conserve l'accès à la fiche patient, mais les données sensibles y sont filtrées.
+// La secrétaire ouvre le dossier sans son contenu médical (diagnostics, ordonnances, maladies, traitements).
 const ROLES_DOSSIER = [Role.DIRECTION, ...SOIGNANTS, Role.SECRETAIRE];
 
 const routeur = Router();
