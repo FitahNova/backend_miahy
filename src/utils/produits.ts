@@ -59,6 +59,9 @@ export const FORMES_QUANTITE_ECRITE = ["pommade", "injectable", "collyre"] as co
 
 export const estQuantiteEcrite = (forme: string) => (FORMES_QUANTITE_ECRITE as readonly string[]).includes(forme);
 
+/** Toutes les formes connues (fiches du stock, et médicaments hors stock de l'ordonnance). */
+export const FORMES_MEDICAMENT = ["comprimé", "gélule", "sachet", "sirop", "pommade", "injectable", "suppositoire", "collyre"] as const;
+
 /** Contenu retenu pour une forme : la valeur saisie pour les formes à contenu, sinon 1. */
 export function contenuSelonForme(forme: string, contenu: number | null | undefined): number {
   return (FORMES_A_CONTENU as readonly string[]).includes(forme) ? Math.max(1, contenu ?? 1) : 1;

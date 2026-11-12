@@ -13,6 +13,8 @@ export interface LigneOrdonnanceSaisie {
   /** Médicament du stock du centre. Absent : médicament hors stock, nommé par « libelle » (prescription seule). */
   medicamentId?: number | null;
   libelle?: string | null;
+  /** Médicament hors stock : forme choisie par le praticien (comprimé, sirop, injectable…). */
+  forme?: string | null;
   /** Vides pour pommade, injectable et collyre : la quantité est écrite par le médecin. */
   doseParPrise?: number | null;
   prisesParJour?: number | null;
@@ -51,6 +53,7 @@ const selectionOrdonnance = {
       quantiteDelivree: true,
       instruction: true,
       libelle: true,
+      forme: true,
       medicament: { select: { id: true, nom: true, forme: true, contenuConditionnement: true } },
     },
     orderBy: { id: "asc" },
@@ -144,11 +147,15 @@ export async function enregistrerOrdonnanceDuPassage(
         ordonnanceId: ordonnance.id,
         medicamentId: ligne.medicamentId ?? null,
         libelle: ligne.medicamentId ? null : (ligne.libelle?.trim() ?? null),
+        forme: ligne.medicamentId ? null : (ligne.forme ?? null),
         instruction: ligne.instruction?.trim() || null,
       };
-      if (medicament && estQuantiteEcrite(medicament.forme)) {
-        if (!ligne.quantite) throw new ErreurHttp(400, "QUANTITE_REQUISE", { medicament: medicament.nom });
-        if (!base.instruction) throw new ErreurHttp(400, "INSTRUCTION_REQUISE", { medicament: medicament.nom });
+      // Forme : celle de la fiche du stock, ou celle choisie pour un médicament hors stock.
+      const forme = medicament?.forme ?? ligne.forme ?? "";
+      const nom = medicament?.nom ?? ligne.libelle ?? null;
+      if (estQuantiteEcrite(forme)) {
+        if (!ligne.quantite) throw new ErreurHttp(400, "QUANTITE_REQUISE", { medicament: nom });
+        if (!base.instruction) throw new ErreurHttp(400, "INSTRUCTION_REQUISE", { medicament: nom });
         return { ...base, doseParPrise: null, prisesParJour: null, dureeJours: null, intervalleJours: 1, uniteDuree: "jours", quantitePrescrite: ligne.quantite };
       }
       if (!ligne.doseParPrise || !ligne.prisesParJour || !ligne.dureeJours) {

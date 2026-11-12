@@ -3,12 +3,15 @@ import { z } from "zod";
 import { enregistrerOrdonnanceDuPassage, obtenirOrdonnanceDuPassage } from "../services/ordonnances.service.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
+import { FORMES_MEDICAMENT } from "../utils/produits.js";
 
 // Une ligne : un médicament du stock (medicamentId) ou un médicament hors stock saisi (libelle), pas les deux.
 const schemaLigne = z
   .object({
     medicamentId: z.number().int().positive().nullish(),
     libelle: z.string().trim().min(2).max(150).nullish(),
+    // Médicament hors stock : sa forme est obligatoire (elle dit comment écrire la posologie).
+    forme: z.enum(FORMES_MEDICAMENT).nullish(),
     // Vides pour pommade, injectable et collyre (le service vérifie selon la forme).
     doseParPrise: z.number().positive().max(99.99).nullish(),
     prisesParJour: z.number().int().min(1).max(24).nullish(),
@@ -22,6 +25,10 @@ const schemaLigne = z
   .refine((ligne) => Boolean(ligne.medicamentId) !== Boolean(ligne.libelle), {
     message: "Choisissez un médicament du stock ou saisissez son nom",
     path: ["libelle"],
+  })
+  .refine((ligne) => Boolean(ligne.medicamentId) || Boolean(ligne.forme), {
+    message: "Précisez la forme du médicament hors stock",
+    path: ["forme"],
   });
 
 const schemaOrdonnance = z.object({

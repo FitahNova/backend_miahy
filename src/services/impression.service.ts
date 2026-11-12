@@ -58,6 +58,7 @@ export async function obtenirDonneesOrdonnance(passageId: number, utilisateurId:
               quantitePrescrite: true,
               instruction: true,
               libelle: true,
+              forme: true,
               medicament: { select: { nom: true, forme: true, contenuConditionnement: true } },
             },
           },
@@ -97,11 +98,11 @@ export async function obtenirDonneesOrdonnance(passageId: number, utilisateurId:
       actes: actes.map((acte) => acte.nom),
     },
     prochainRendezVous,
-    // Médicament hors stock : le nom saisi par le praticien, sans forme.
-    lignes: (passage.ordonnance?.lignes ?? []).map(({ libelle, medicament, ...ligne }) => ({
+    // Médicament hors stock : le nom et la forme saisis par le praticien.
+    lignes: (passage.ordonnance?.lignes ?? []).map(({ libelle, forme, medicament, ...ligne }) => ({
       ...ligne,
       doseParPrise: ligne.doseParPrise === null ? null : Number(ligne.doseParPrise),
-      medicament: medicament ?? { nom: libelle ?? "", forme: "", contenuConditionnement: 1 },
+      medicament: medicament ?? { nom: libelle ?? "", forme: forme ?? "", contenuConditionnement: 1 },
       horsStock: medicament === null,
     })),
   };

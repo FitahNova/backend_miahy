@@ -269,6 +269,8 @@ model LigneOrdonnance {
   medicament        Medicament?      @relation(fields: [medicamentId], references: [id])
   // Nom saisi par le praticien pour un médicament hors stock. Contrôle en base : médicament ou libellé.
   libelle           String?          @db.VarChar(150)
+  // Forme du médicament hors stock (comprimé, sirop, injectable…), choisie par le praticien : elle guide la posologie.
+  forme             String?          @db.VarChar(30)
   // Vides pour pommade, injectable et collyre : instruction et quantité écrites par le médecin.
   doseParPrise      Decimal?         @map("dose_par_prise") @db.Decimal(4, 2)
   prisesParJour     Int?             @map("prises_par_jour") @db.SmallInt

@@ -45,9 +45,10 @@ function posologie(ligne: {
   intervalleJours: number;
   uniteDuree: string;
   instruction: string | null;
+  forme: string | null;
   medicament: { forme: string } | null;
 }): string {
-  return textePosologie({ ...ligne, doseParPrise: versNombre(ligne.doseParPrise), forme: ligne.medicament?.forme ?? "" });
+  return textePosologie({ ...ligne, doseParPrise: versNombre(ligne.doseParPrise), forme: ligne.medicament?.forme ?? ligne.forme ?? "" });
 }
 
 type TypeEvenement = "ARRIVEE" | "CONSULTATION" | "ORDONNANCE" | "PAIEMENT" | "RENDEZ_VOUS" | "RAPPEL" | "MODIFICATION";
@@ -131,6 +132,7 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
                 uniteDuree: true,
                 instruction: true,
                 libelle: true,
+                forme: true,
                 medicament: { select: { nom: true, forme: true, contenuConditionnement: true } },
               },
             },
@@ -219,7 +221,7 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
                 lignes: passage.ordonnance.lignes.map((ligne) => ({
                   // Médicament hors stock : nom saisi par le praticien.
                   medicament: ligne.medicament?.nom ?? ligne.libelle ?? "",
-                  forme: ligne.medicament?.forme ?? "hors stock",
+                  forme: ligne.medicament?.forme ?? (ligne.forme ? `${ligne.forme}, hors stock` : "hors stock"),
                   posologie: posologie(ligne),
                   // Délivré et prescrit dans la même unité : plaquettes pour le comprimé et la gélule.
                   quantite: unitesADelivrer(ligne.quantitePrescrite, ligne.medicament?.contenuConditionnement ?? 1),
