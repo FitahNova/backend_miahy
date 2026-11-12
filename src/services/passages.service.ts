@@ -186,8 +186,19 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
     throw new ErreurHttp(400, "NATIONALITE_REQUISE");
   }
 
+  // Analyse seule : pas de médecin, le patient va directement en caisse (paiement avant l'analyse).
+  const analyseSeule = donnees.orientation === Orientation.ANALYSE;
+
+  // Une analyse seule qui attend son paiement ne bloque pas une venue chez un soignant : le patient peut voir
+  // le médecin avant de payer ses analyses. Deux analyses seules ouvertes en même temps restent refusées.
   const enCours = await transaction.passage.findFirst({
-    where: { patientId: donnees.patientId, statut: { in: STATUTS_PASSAGE_EN_COURS } },
+    where: {
+      patientId: donnees.patientId,
+      statut: { in: STATUTS_PASSAGE_EN_COURS },
+      ...(analyseSeule
+        ? {}
+        : { OR: [{ orientation: null }, { orientation: { not: Orientation.ANALYSE } }, { statut: { not: StatutPassage.CAISSE } }] }),
+    },
     select: { id: true },
   });
   if (enCours) {
@@ -211,8 +222,6 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
     }
   }
 
-  // Analyse seule : pas de médecin, le patient va directement en caisse (paiement avant l'analyse).
-  const analyseSeule = donnees.orientation === Orientation.ANALYSE;
   // Date de retour facultative : elle se met sur le ticket d'analyses, ou le laboratoire la complète à la main.
   if (analyseSeule && (!donnees.analyses || donnees.analyses.length === 0)) {
     throw new ErreurHttp(400, "ANALYSES_REQUISES");
