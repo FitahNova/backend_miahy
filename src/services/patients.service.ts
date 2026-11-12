@@ -7,6 +7,7 @@ import { normaliserTelephone, MESSAGE_TELEPHONE } from "../utils/telephone.js";
 import { ageEnAnnees, determinerProgrammeParAgeSexe } from "../utils/programmes.js";
 import { champsModifies } from "../utils/audit.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
+import { limiteInactivite, statutPatient, STATUTS_PATIENT, VENUES_FIDELE, type StatutPatient } from "../utils/statutPatient.js";
 import { enregistrerAudit } from "./audit.service.js";
 
 const NOMBRE_CHIFFRES_NUMERO_DOSSIER = 4; // MIA-0001 : 8 caractères au total
@@ -17,6 +18,8 @@ const LIMITE_LISTE_COMPLETE = 2000; // liste filtrée à imprimer
 
 
 export interface FiltresPatients {
+  /** Direction : un ou plusieurs statuts (Nouveau, Fidèle, À relancer) ; vide = tous. */
+  statuts?: StatutPatient[];
   programmeId?: number;
   sexe?: "H" | "F";
   /** Âge exact en années révolues (filtre « Âge » de la liste). */
@@ -123,6 +126,27 @@ function construireFiltreRecherche(recherche: string | undefined): Prisma.Patien
   };
 }
 
+const sansAccents = (texte: string) => texte.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
+/**
+ * Même recherche, insensible aux accents (« rakotomalala » trouve « Rakotomalàla », « elisa » trouve « Élisa ») :
+ * pour une recherche par nom, chaque mot est comparé sans accents au nom, au prénom et au n° de dossier.
+ */
+async function filtreRechercheSansAccents(recherche: string | undefined): Promise<Prisma.PatientWhereInput> {
+  const filtre = construireFiltreRecherche(recherche);
+  const brut = (recherche ?? "").trim();
+  if (!brut || !("AND" in filtre)) return filtre; // vide ou téléphone : rien à comparer sans accents
+  const mots = brut.split(/\s+/).map(sansAccents);
+  const candidats = await prisma.patient.findMany({ where: { actif: true }, select: { id: true, nom: true, prenom: true, numeroDossier: true } });
+  const ids = candidats
+    .filter((patient) => {
+      const champs = [patient.nom, patient.prenom, patient.numeroDossier].map(sansAccents);
+      return mots.every((mot) => champs.some((champ) => champ.includes(mot)));
+    })
+    .map((patient) => patient.id);
+  return { actif: true, id: { in: ids } };
+}
+
 // R024 : rôles qui ne voient pas le téléphone du patient.
 // Depuis le 28/10/2026 : seules la Direction et la Secrétaire le voient (les soignants non).
 const ROLES_SANS_COORDONNEES: Role[] = [Role.MEDECIN_CHEF, Role.MEDECIN, Role.SAGE_FEMME];
@@ -147,13 +171,53 @@ export function masquerCoordonnees<
  * Liste paginée des patients (recherche et filtres), avec le total pour « page X sur Y ».
  * « complet » (impression de la liste filtrée) renvoie tout, sans pagination.
  */
-export async function listerPatientsParRecherche(role: Role, recherche?: string, filtres: FiltresPatients = {}) {
+type VenuesParPatient = { patientId: number; _count: { _all: number }; _max: { heureArrivee: Date | null } }[];
+
+/** Nombre de venues et dernière venue de chaque patient (statuts de la Direction). */
+async function lireVenuesParPatient(): Promise<VenuesParPatient> {
+  const lignes = await prisma.passage.groupBy({ by: ["patientId"], _count: { _all: true }, _max: { heureArrivee: true } });
+  return lignes.map((ligne) => ({ patientId: ligne.patientId, _count: { _all: ligne._count._all }, _max: { heureArrivee: ligne._max.heureArrivee } }));
+}
+
+/**
+ * Patients d'un statut (Direction). Fidèle : plus de 10 venues ; À relancer : au plus une venue, rien depuis 6 mois ;
+ * Nouveau : créé après le repère. Un seul statut par patient : un nouveau n'est jamais compté fidèle ou à relancer.
+ */
+function filtreStatut(statut: StatutPatient, repere: Date, venues: VenuesParPatient): Prisma.PatientWhereInput {
+  if (statut === "NOUVEAU") return { creeLe: { gt: repere } };
+  if (statut === "FIDELE") {
+    const fideles = venues.filter((ligne) => ligne._count._all > VENUES_FIDELE).map((ligne) => ligne.patientId);
+    return { id: { in: fideles }, creeLe: { lte: repere } };
+  }
+  const limite = limiteInactivite(new Date());
+  // Exclus : plusieurs venues, ou une venue récente.
+  const exclus = venues
+    .filter((ligne) => ligne._count._all > 1 || (ligne._max.heureArrivee !== null && ligne._max.heureArrivee >= limite))
+    .map((ligne) => ligne.patientId);
+  return { id: { notIn: exclus }, creeLe: { lt: limite, lte: repere } };
+}
+
+export async function listerPatientsParRecherche(
+  role: Role,
+  recherche?: string,
+  filtres: FiltresPatients = {},
+  /** Direction : repère des « nouveaux » ; sans lui, pas de statut. */
+  repereNouveaux?: Date,
+) {
+  const avecStatut = role === Role.DIRECTION && repereNouveaux !== undefined;
+  // Recherche et filtres, sans le statut : base des compteurs de chaque statut.
+  const base: Prisma.PatientWhereInput[] = [
+    await filtreRechercheSansAccents(recherche),
+    filtres.programmeId ? { programmeId: filtres.programmeId } : {},
+    filtres.sexe ? { sexe: filtres.sexe } : {},
+    filtres.age !== undefined ? filtreAge(filtres.age) : {},
+  ];
+  const venuesDeTous: VenuesParPatient = avecStatut ? await lireVenuesParPatient() : [];
+  const statuts = avecStatut ? (filtres.statuts ?? []) : [];
   const where: Prisma.PatientWhereInput = {
     AND: [
-      construireFiltreRecherche(recherche),
-      filtres.programmeId ? { programmeId: filtres.programmeId } : {},
-      filtres.sexe ? { sexe: filtres.sexe } : {},
-      filtres.age !== undefined ? filtreAge(filtres.age) : {},
+      ...base,
+      statuts.length > 0 ? { OR: statuts.map((statut) => filtreStatut(statut, repereNouveaux!, venuesDeTous)) } : {},
     ],
   };
   const taille = filtres.complet ? LIMITE_LISTE_COMPLETE : (filtres.taille ?? TAILLE_PAGE_PATIENTS);
@@ -169,7 +233,38 @@ export async function listerPatientsParRecherche(role: Role, recherche?: string,
     }),
     prisma.patient.count({ where }),
   ]);
-  return { patients: patients.map((patient) => masquerCoordonnees(patient, role)), total, page, taille };
+  if (!avecStatut) {
+    return { patients: patients.map((patient) => masquerCoordonnees(patient, role)), total, page, taille };
+  }
+  // Statut de chaque patient de la page : nombre de venues et dernière venue.
+  const parPatient = new Map(venuesDeTous.map((ligne) => [ligne.patientId, ligne]));
+  const maintenant = new Date();
+  // Nombre de patients par statut, selon la recherche et le programme (sans le filtre de statut).
+  const [tous, ...parStatut] = await prisma.$transaction([
+    prisma.patient.count({ where: { AND: base } }),
+    ...STATUTS_PATIENT.map((statut) => prisma.patient.count({ where: { AND: [...base, filtreStatut(statut, repereNouveaux, venuesDeTous)] } })),
+  ]);
+  const compteurs = { TOUS: tous, ...Object.fromEntries(STATUTS_PATIENT.map((statut, index) => [statut, parStatut[index]])) } as Record<
+    "TOUS" | StatutPatient,
+    number
+  >;
+  return {
+    compteurs,
+    patients: patients.map((patient) => {
+      const ligne = parPatient.get(patient.id);
+      return {
+        ...masquerCoordonnees(patient, role),
+        statut: statutPatient(
+          { creeLe: patient.creeLe, venues: ligne?._count._all ?? 0, derniereVenue: ligne?._max.heureArrivee ?? null },
+          repereNouveaux,
+          maintenant,
+        ),
+      };
+    }),
+    total,
+    page,
+    taille,
+  };
 }
 
 async function lirePatient(identifiant: number) {

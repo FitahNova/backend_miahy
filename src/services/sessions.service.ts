@@ -5,6 +5,7 @@ import { signerJeton } from "../middleware/auth.js";
 import { fermerFluxDuCompte } from "../realtime/sse.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { journaliserConnexion } from "./journal.service.js";
+import { commencerSessionDirection, terminerSessionDirection } from "./activiteDirection.service.js";
 
 // Un refresh token est une valeur aléatoire longue : un hachage SHA-256 suffit (pas besoin de bcrypt).
 function hacher(valeur: string): string {
@@ -37,6 +38,8 @@ export async function ouvrirSession(utilisateurId: number) {
     select: { id: true, civilite: true, nom: true, prenom: true, email: true, role: true, versionSession: true },
   });
   const session = await creerSession(utilisateur.id);
+  // Direction : les patients créés depuis sa session précédente deviennent « nouveaux ».
+  if (utilisateur.role === "DIRECTION") await commencerSessionDirection(utilisateur.id);
   return {
     jeton: signerJeton({ id: utilisateur.id, role: utilisateur.role, versionSession: utilisateur.versionSession }),
     utilisateur: {
@@ -148,6 +151,8 @@ export async function revoquerSession(refreshToken: string): Promise<number | nu
   ]);
   // Les jetons du compte ne valent plus rien (version changée) : ses flux temps réel sont fermés aussi.
   fermerFluxDuCompte(session.utilisateurId);
+  // Fin de session : à la prochaine connexion, les nouveaux d'aujourd'hui ne le seront plus.
+  await terminerSessionDirection(session.utilisateurId);
 
   return session.utilisateurId;
 }

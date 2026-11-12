@@ -9,6 +9,8 @@ import {
   obtenirPatientParIdentifiant,
 } from "../services/patients.service.js";
 import { estClinique } from "../services/dossier.service.js";
+import { repereNouveaux } from "../services/activiteDirection.service.js";
+import { STATUTS_PATIENT } from "../utils/statutPatient.js";
 import { coordonneesVisibles, masquerCoordonnees } from "../services/patients.service.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { champNom, champPrenom, champsNaissance, naissanceDepuisSaisie, regleNaissance } from "../utils/identite.js";
@@ -44,6 +46,12 @@ const schemaModificationPatient = z
 // Filtres de la liste ; « complet=1 » lève la limite d'affichage (impression de la liste filtrée).
 const schemaRecherche = z.object({
   q: z.string().optional(),
+  // Direction seulement : statuts séparés par des virgules (« NOUVEAU,FIDELE ») ; ignoré pour les autres rôles.
+  statuts: z
+    .string()
+    .optional()
+    .transform((texte) => (texte ? texte.split(",").filter(Boolean) : undefined))
+    .pipe(z.array(z.enum(STATUTS_PATIENT)).optional()),
   programmeId: z.coerce.number().int().positive().optional(),
   sexe: z.enum(["H", "F"]).optional(),
   // Âge exact saisi dans le filtre de la liste.
@@ -61,7 +69,10 @@ export async function listerPatients(requete: Request, reponse: Response) {
   // Liste complète = export PDF de la liste des patients : réservé à la Direction.
   if (complet === "1" && lireRole(requete) !== Role.DIRECTION) throw new ErreurHttp(403, "EXPORT_RESERVE_DIRECTION");
   // { patients, total, page, taille } : la liste affiche « page X sur Y ».
-  reponse.json(await listerPatientsParRecherche(lireRole(requete), q, { ...filtres, complet: complet === "1" }));
+  const utilisateur = lireUtilisateur(requete);
+  // Direction : statut des patients, « nouveaux » depuis la fin de sa session précédente.
+  const repere = utilisateur.role === Role.DIRECTION ? await repereNouveaux(utilisateur.id) : undefined;
+  reponse.json(await listerPatientsParRecherche(utilisateur.role, q, { ...filtres, complet: complet === "1" }, repere));
 }
 
 export async function obtenirPatient(requete: Request, reponse: Response) {

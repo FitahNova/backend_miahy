@@ -60,6 +60,9 @@ model Utilisateur {
   tentativesEchec  Int       @default(0) @map("tentatives_echec") @db.SmallInt
   verrouilleJusqua DateTime? @map("verrouille_jusqua") @db.Timestamptz(6)
   versionSession   Int       @default(0) @map("version_session")
+  // Direction : patients « nouveaux » = créés depuis la fin de sa session précédente (déconnexion ou 1 h sans activité).
+  derniereActiviteLe DateTime? @map("derniere_activite_le") @db.Timestamptz(6)
+  nouveauxDepuis     DateTime? @map("nouveaux_depuis") @db.Timestamptz(6)
 
   // Mot de passe provisoire (expire)
   motDePasseTemporaire Boolean   @default(false) @map("mot_de_passe_temporaire")

@@ -4,6 +4,7 @@ import type { Role } from "../generated/prisma/client.js";
 import { prisma } from "../config/prisma.js";
 import { DUREE_JETON_ACCES_MINUTES } from "../config/constants.js";
 import { lireCookie, NOM_COOKIE_SESSION } from "../utils/cookies.js";
+import { noterActiviteDirection } from "../services/activiteDirection.service.js";
 
 export interface UtilisateurConnecte {
   id: number;
@@ -68,7 +69,7 @@ export async function exigerConnexion(requete: Request, reponse: Response, suiva
     // Relecture en base à chaque requête : désactivation, changement de rôle et révocation prennent effet immédiatement.
     const utilisateur = await prisma.utilisateur.findUnique({
       where: { id },
-      select: { actif: true, role: true, versionSession: true },
+      select: { actif: true, role: true, versionSession: true, derniereActiviteLe: true },
     });
 
     if (!utilisateur || !utilisateur.actif || contenu.version !== utilisateur.versionSession) {
@@ -77,6 +78,10 @@ export async function exigerConnexion(requete: Request, reponse: Response, suiva
     }
 
     requete.utilisateur = { id, role: utilisateur.role };
+    // Direction : activité notée (statut « Nouveau » des patients), sans retarder la requête.
+    if (utilisateur.role === "DIRECTION") {
+      noterActiviteDirection(id, utilisateur.derniereActiviteLe).catch(() => undefined);
+    }
     suivant();
   } catch (erreur) {
     suivant(erreur);
