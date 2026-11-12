@@ -26,6 +26,7 @@ const schemaPartenaire = z
     contact: z.string().trim().max(255).nullish(),
     tauxPriseEnCharge: z.number().int().min(0).max(TAUX_MAX),
     serviceCouvertId: z.number().int().positive().nullish(),
+    analyseCouverteId: z.number().int().positive().nullish(),
     couvreMedicaments: z.boolean().optional(),
     programmeIds: z.array(z.number().int().positive()).max(20).default([]),
     debut: z.iso.date().nullish(),

@@ -31,7 +31,7 @@ async function lireFacture(client: Client, factureId: number) {
       creeLe: true,
       conventionFigeeLe: true,
       patient: { select: { programmeId: true } },
-      lignes: { select: { type: true, serviceId: true, quantite: true, prixUnitaire: true } },
+      lignes: { select: { type: true, serviceId: true, analyseId: true, quantite: true, prixUnitaire: true } },
     },
   });
   if (!facture) throw new ErreurHttp(404, "FACTURE_INTROUVABLE");
@@ -50,6 +50,7 @@ async function calculerConventionsPossibles(client: Client, facture: FactureLue)
       nom: true,
       tauxPriseEnCharge: true,
       serviceCouvertId: true,
+      analyseCouverteId: true,
       couvreMedicaments: true,
       actif: true,
       debut: true,

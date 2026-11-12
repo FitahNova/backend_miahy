@@ -34,8 +34,9 @@ export interface DonneesPartenaire {
   contact?: string | null;
   /** 0 = aucune prise en charge. */
   tauxPriseEnCharge: number;
-  /** Objet couvert quand le taux est > 0 : un service OU les médicaments. */
+  /** Objets couverts quand le taux est > 0 : un service, une analyse et/ou les médicaments (au moins un). */
   serviceCouvertId?: number | null;
+  analyseCouverteId?: number | null;
   couvreMedicaments?: boolean;
   programmeIds: number[];
   debut?: string | null;
@@ -54,6 +55,7 @@ const SELECTION_PARTENAIRE = {
   creeLe: true,
   categorie: { select: { id: true, nom: true } },
   serviceCouvert: { select: { id: true, nom: true } },
+  analyseCouverte: { select: { id: true, code: true, nom: true } },
   programmes: { select: { id: true, nom: true }, orderBy: { id: "asc" as const } },
   documents: {
     orderBy: { ajouteLe: "desc" as const },
@@ -64,20 +66,25 @@ const SELECTION_PARTENAIRE = {
 /** Vérifie la cohérence d'une convention avant écriture (mêmes règles que les contraintes en base). */
 async function verifierConvention(donnees: DonneesPartenaire) {
   if (donnees.tauxPriseEnCharge > 0) {
-    const objets = Number(Boolean(donnees.serviceCouvertId)) + Number(Boolean(donnees.couvreMedicaments));
+    const objets =
+      Number(Boolean(donnees.serviceCouvertId)) + Number(Boolean(donnees.analyseCouverteId)) + Number(Boolean(donnees.couvreMedicaments));
     if (objets < 1) throw new ErreurHttp(400, "OBJET_COUVERT_REQUIS");
   }
   if (donnees.debut && donnees.fin && donnees.fin < donnees.debut) throw new ErreurHttp(400, "PERIODE_INVALIDE");
 
-  const [categorie, service, programmes] = await Promise.all([
+  const [categorie, service, analyse, programmes] = await Promise.all([
     prisma.categoriePartenaire.findUnique({ where: { id: donnees.categorieId }, select: { id: true } }),
     donnees.serviceCouvertId
       ? prisma.service.findUnique({ where: { id: donnees.serviceCouvertId }, select: { actif: true } })
+      : Promise.resolve(null),
+    donnees.analyseCouverteId
+      ? prisma.analyse.findUnique({ where: { id: donnees.analyseCouverteId }, select: { actif: true } })
       : Promise.resolve(null),
     prisma.programme.count({ where: { id: { in: donnees.programmeIds } } }),
   ]);
   if (!categorie) throw new ErreurHttp(400, "CATEGORIE_PARTENAIRE_INTROUVABLE");
   if (donnees.serviceCouvertId && !service?.actif) throw new ErreurHttp(400, "SERVICE_INACTIF");
+  if (donnees.analyseCouverteId && !analyse?.actif) throw new ErreurHttp(400, "ANALYSE_INACTIVE");
   if (programmes !== new Set(donnees.programmeIds).size) throw new ErreurHttp(400, "PROGRAMME_INCONNU");
 }
 
@@ -90,6 +97,7 @@ function versDonneesPrisma(donnees: DonneesPartenaire) {
     contact: donnees.contact || null,
     tauxPriseEnCharge: donnees.tauxPriseEnCharge,
     serviceCouvertId: couvre ? (donnees.serviceCouvertId ?? null) : null,
+    analyseCouverteId: couvre ? (donnees.analyseCouverteId ?? null) : null,
     couvreMedicaments: couvre ? Boolean(donnees.couvreMedicaments) : false,
     debut: donnees.debut ? new Date(donnees.debut) : null,
     fin: donnees.fin ? new Date(donnees.fin) : null,

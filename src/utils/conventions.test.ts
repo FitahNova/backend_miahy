@@ -31,6 +31,17 @@ describe("Conventions : objet couvert", () => {
   it("couvre tous les médicaments quand la convention porte sur les médicaments", () => {
     assert.equal(montantCouvert({ ...ecole, serviceCouvertId: null, couvreMedicaments: true }, lignes), 1_200);
   });
+  it("couvre l'analyse de la convention, et seulement elle", () => {
+    const NFS = 7;
+    const avecAnalyses: LigneCouvrable[] = [
+      ...lignes,
+      { type: "ANALYSE", serviceId: null, analyseId: NFS, quantite: 1, prixUnitaire: 8_000 },
+      { type: "ANALYSE", serviceId: null, analyseId: 8, quantite: 1, prixUnitaire: 5_000 },
+    ];
+    assert.equal(montantCouvert({ ...ecole, serviceCouvertId: null, analyseCouverteId: NFS }, avecAnalyses), 8_000);
+    // Service, analyse et médicaments ensemble : les trois s'additionnent.
+    assert.equal(montantCouvert({ ...ecole, analyseCouverteId: NFS, couvreMedicaments: true }, avecAnalyses), 15_000 + 8_000 + 1_200);
+  });
 });
 
 describe("Conventions : conditions d'application (R084)", () => {

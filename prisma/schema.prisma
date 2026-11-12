@@ -527,6 +527,7 @@ model Analyse {
   actif       Boolean              @default(true)
   creeLe      DateTime             @default(now()) @map("cree_le") @db.Timestamptz(6)
   lignesFacture LigneFacture[]
+  partenaires   Partenaire[]
 
   @@index([categorieId])
   @@map("analyse")
@@ -656,10 +657,12 @@ model Partenaire {
   categorieId       Int                  @map("categorie_id")
   categorie         CategoriePartenaire  @relation(fields: [categorieId], references: [id])
   contact           String?              @db.VarChar(255)
-  // Convention : un taux appliqué à un ou plusieurs objets couverts (service et/ou médicaments).
+  // Convention : un taux appliqué à un ou plusieurs objets couverts (un service, une analyse, les médicaments).
   tauxPriseEnCharge Int                  @default(0) @map("taux_prise_en_charge") @db.SmallInt
   serviceCouvertId  Int?                 @map("service_couvert_id")
   serviceCouvert    Service?             @relation(fields: [serviceCouvertId], references: [id])
+  analyseCouverteId Int?                 @map("analyse_couverte_id")
+  analyseCouverte   Analyse?             @relation(fields: [analyseCouverteId], references: [id])
   couvreMedicaments Boolean              @default(false) @map("couvre_medicaments")
   debut             DateTime?            @db.Date
   fin               DateTime?            @db.Date

@@ -3,6 +3,8 @@
 export interface Convention {
   tauxPriseEnCharge: number;
   serviceCouvertId: number | null;
+  /** Analyse prise en charge (prix du catalogue). */
+  analyseCouverteId?: number | null;
   couvreMedicaments: boolean;
   actif: boolean;
   debut: Date | null;
@@ -11,15 +13,16 @@ export interface Convention {
 }
 
 export interface LigneCouvrable {
-  type: "ACTE" | "MEDICAMENT" | "ANALYSE"; // les analyses ne sont jamais couvertes par une convention
+  type: "ACTE" | "MEDICAMENT" | "ANALYSE";
   serviceId: number | null;
+  analyseId?: number | null;
   quantite: number;
   prixUnitaire: number;
 }
 
 const jour = (date: Date) => date.toISOString().slice(0, 10);
 
-/** Montant des lignes couvertes : le service de la convention, ou tous les médicaments (ou les deux). */
+/** Montant des lignes couvertes : le service, l'analyse de la convention, et/ou tous les médicaments. */
 export function montantCouvert(convention: Convention, lignes: readonly LigneCouvrable[]): number {
   return lignes
     .filter((ligne) => {
@@ -29,7 +32,12 @@ export function montantCouvert(convention: Convention, lignes: readonly LigneCou
         ligne.type === "ACTE" &&
         ligne.serviceId !== null &&
         ligne.serviceId === convention.serviceCouvertId;
-      return couvreMedicament || couvreService;
+      const couvreAnalyse =
+        convention.analyseCouverteId != null &&
+        ligne.type === "ANALYSE" &&
+        ligne.analyseId != null &&
+        ligne.analyseId === convention.analyseCouverteId;
+      return couvreMedicament || couvreService || couvreAnalyse;
     })
     .reduce((somme, ligne) => somme + ligne.quantite * ligne.prixUnitaire, 0);
 }
