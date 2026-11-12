@@ -213,7 +213,8 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
 
   // Analyse seule : pas de médecin, le patient va directement en caisse (paiement avant l'analyse).
   const analyseSeule = donnees.orientation === Orientation.ANALYSE;
-  if (analyseSeule && (!donnees.analyses || donnees.analyses.length === 0 || !donnees.dateRetourResultat)) {
+  // Date de retour facultative : elle se met sur le ticket d'analyses, ou le laboratoire la complète à la main.
+  if (analyseSeule && (!donnees.analyses || donnees.analyses.length === 0)) {
     throw new ErreurHttp(400, "ANALYSES_REQUISES");
   }
 
@@ -225,7 +226,10 @@ export async function creerPassageDansTransaction(transaction: Prisma.Transactio
       urgence: analyseSeule ? false : (donnees.urgence ?? false),
       praticienId: analyseSeule ? null : (donnees.praticienId ?? null),
       ...(analyseSeule
-        ? { statut: StatutPassage.CAISSE, dateRetourResultat: new Date(`${donnees.dateRetourResultat}T00:00:00Z`) }
+        ? {
+            statut: StatutPassage.CAISSE,
+            ...(donnees.dateRetourResultat ? { dateRetourResultat: new Date(`${donnees.dateRetourResultat}T00:00:00Z`) } : {}),
+          }
         : {}),
     },
     select: selectionPassage,

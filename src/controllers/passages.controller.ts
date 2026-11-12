@@ -63,8 +63,9 @@ const schemaNouveauPassage = z.object({
 }).refine(
   (passage) =>
     passage.orientation !== Orientation.ANALYSE ||
-    (passage.praticienId == null && (passage.analyses?.length ?? 0) > 0 && passage.dateRetourResultat !== undefined),
-  { path: ["analyses"], message: "Choisissez les analyses et la date de retour" },
+    (passage.praticienId == null && (passage.analyses?.length ?? 0) > 0),
+  // Date de retour facultative : elle se met sur le ticket (secrétaire), ou le laboratoire la complète à la main.
+  { path: ["analyses"], message: "Choisissez les analyses" },
 ).refine((passage) => !passage.dateRetourResultat || passage.dateRetourResultat >= jourDuCentre(new Date()), {
   path: ["dateRetourResultat"],
   message: "La date de retour ne peut pas être passée",
