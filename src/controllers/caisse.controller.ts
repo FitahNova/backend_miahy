@@ -27,6 +27,8 @@ const schemaPaiement = z.object({
   mode: z.enum(MODES_PAIEMENT),
   reference: z.string().trim().max(50).nullish(),
   montantRecu: z.number().int().positive().nullish(),
+  // Clé unique de l'encaissement (fabriquée par l'écran) : protège contre un double paiement après une coupure.
+  cleIdempotence: z.string().trim().min(8).max(64).optional(),
 });
 
 const schemaRemise = z.object({

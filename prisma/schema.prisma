@@ -383,6 +383,9 @@ model Paiement {
   // R110 : un paiement rattaché à une clôture n'est plus modifiable.
   clotureId     Int?           @map("cloture_id")
   cloture       ClotureCaisse? @relation(fields: [clotureId], references: [id])
+  // Clé fabriquée par l'écran pour chaque encaissement : la même demande renvoyée après une coupure réseau
+  // ne crée pas un second paiement. Vide pour les paiements enregistrés avant le 12/11/2026.
+  cleIdempotence String?       @unique @map("cle_idempotence") @db.VarChar(64)
 
   @@index([date])
   @@map("paiement")

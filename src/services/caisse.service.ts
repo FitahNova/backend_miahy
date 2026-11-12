@@ -124,13 +124,24 @@ export async function modifierRemiseFacture(factureId: number, montant: number, 
 
 export async function enregistrerNouveauPaiement(
   factureId: number,
-  donnees: { montant: number; mode: ModePaiement; reference?: string | null; montantRecu?: number | null },
+  donnees: { montant: number; mode: ModePaiement; reference?: string | null; montantRecu?: number | null; cleIdempotence?: string },
   utilisateurId: number,
 ) {
   return prisma.$transaction(async (tx) => {
-    await exigerJourneeOuverte(tx);
-
     await tx.$queryRaw`SELECT id FROM facture WHERE id = ${factureId} FOR UPDATE`;
+
+    // Même demande renvoyée (coupure réseau pendant la réponse) : le paiement existe déjà, on le renvoie tel quel.
+    if (donnees.cleIdempotence) {
+      const deja = await tx.paiement.findUnique({ where: { cleIdempotence: donnees.cleIdempotence } });
+      if (deja) {
+        if (deja.factureId !== factureId) throw new ErreurHttp(409, "CLE_PAIEMENT_REUTILISEE");
+        const factureActuelle = await tx.facture.findUniqueOrThrow({ where: { id: factureId } });
+        const recu = deja.montantRecu ?? deja.montant;
+        return { paiement: deja, facture: factureActuelle, resteDu: calculerResteDu(factureActuelle), rendu: recu - deja.montant, dejaEnregistre: true };
+      }
+    }
+
+    await exigerJourneeOuverte(tx);
     const avant = await tx.facture.findUnique({ where: { id: factureId }, select: { statut: true } });
     if (!avant) throw new ErreurHttp(404, "FACTURE_INTROUVABLE");
     // R087 : la convention est figée au premier paiement (la part patient peut diminuer).
@@ -165,6 +176,7 @@ export async function enregistrerNouveauPaiement(
         mode: donnees.mode,
         reference: donnees.reference ?? null,
         montantRecu,
+        cleIdempotence: donnees.cleIdempotence ?? null,
       },
     });
 
@@ -189,7 +201,7 @@ export async function enregistrerNouveauPaiement(
       detail: { montant: donnees.montant, mode: donnees.mode, montantRecu, rendu, resteApres },
     });
 
-    return { paiement, facture: miseAJour, resteDu: resteApres, rendu };
+    return { paiement, facture: miseAJour, resteDu: resteApres, rendu, dejaEnregistre: false };
   }, OPTIONS_TRANSACTION);
 }
 
