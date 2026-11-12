@@ -108,13 +108,19 @@ async function verifierPraticien(client: Prisma.TransactionClient, praticienId: 
  * Rendez-vous entre deux jours inclus (AAAA-MM-JJ), triés par date.
  * Le détail suit les droits : allergies pour les cliniciens seulement, téléphone selon les règles de coordonnées.
  */
+/**
+ * Médecin et sage-femme : seulement les rendez-vous qui leur sont affectés (décision du 12/11/2026).
+ * Le Médecin chef et la secrétaire voient tout : le Médecin chef peut prendre ou réaffecter un rendez-vous.
+ */
+export const voitSeulementSesRendezVous = (role: Role) => role === Role.MEDECIN || role === Role.SAGE_FEMME;
+
 export async function listerRendezVous(filtre: { du: string; au: string }, utilisateur: UtilisateurConnecte) {
   const debut = bornesDuJour(filtre.du).debut;
   const fin = bornesDuJour(filtre.au).fin;
   const rendezVous = await prisma.rendezVous.findMany({
     where: {
-      // Tous les rôles voient tous les rendez-vous (décision du 29/10/2026), sans filtre par praticien.
       dateHeure: { gte: debut, lt: fin },
+      ...(voitSeulementSesRendezVous(utilisateur.role) ? { praticienId: utilisateur.id } : {}),
     },
     orderBy: { dateHeure: "asc" },
     select: {
@@ -422,6 +428,7 @@ export async function lireCompteurs(utilisateur: UtilisateurConnecte) {
       where: {
         statut: StatutRendezVous.PREVU,
         dateHeure: { gte: debut, lt: fin },
+        ...(voitSeulementSesRendezVous(role) ? { praticienId: utilisateur.id } : {}),
       },
     });
     const suivis = await compterSuivis();
@@ -448,4 +455,40 @@ export function listerPraticiens() {
     orderBy: [{ role: "asc" }, { nom: "asc" }],
     select: { id: true, civilite: true, nom: true, prenom: true, role: true },
   });
+}
+
+/**
+ * Médecin chef : prend un rendez-vous prévu (absence d'un collègue) ou l'affecte à un autre praticien.
+ * Le créneau doit être libre chez le nouveau praticien.
+ * @throws 404 RENDEZ_VOUS_INTROUVABLE, 409 RENDEZ_VOUS_DEJA_TRAITE, 400 PRATICIEN_INVALIDE, 409 PRATICIEN_DEJA_RESERVE
+ */
+export async function reaffecterRendezVous(id: number, praticienId: number, auteur: UtilisateurConnecte) {
+  return prisma.$transaction(async (tx) => {
+    const rdv = await lireRendezVousPrevu(tx, id);
+    if (rdv.praticienId === praticienId) return;
+    await verifierPraticien(tx, praticienId);
+    // Verrouillage du praticien : deux affectations simultanées ne prennent pas le même créneau.
+    await tx.$queryRaw`SELECT id FROM utilisateur WHERE id = ${praticienId} FOR UPDATE`;
+    const ecart = DUREE_CRENEAU_RENDEZ_VOUS_MINUTES * 60 * 1000;
+    const occupes = await tx.rendezVous.findMany({
+      where: {
+        id: { not: id },
+        praticienId,
+        statut: StatutRendezVous.PREVU,
+        dateHeure: { gt: new Date(rdv.dateHeure.getTime() - ecart), lt: new Date(rdv.dateHeure.getTime() + ecart) },
+      },
+      select: { dateHeure: true },
+    });
+    const conflit = occupes.find((autre) => memeCreneau(autre.dateHeure, rdv.dateHeure));
+    if (conflit) throw new ErreurHttp(409, "PRATICIEN_DEJA_RESERVE", { dateHeure: conflit.dateHeure.toISOString() });
+
+    await tx.rendezVous.update({ where: { id }, data: { praticienId } });
+    await enregistrerAudit(tx, {
+      utilisateurId: auteur.id,
+      action: "RENDEZ_VOUS_REAFFECTE",
+      entite: "rendez_vous",
+      entiteId: id,
+      detail: { avant: { praticienId: rdv.praticienId }, apres: { praticienId } },
+    });
+  }, OPTIONS_TRANSACTION);
 }

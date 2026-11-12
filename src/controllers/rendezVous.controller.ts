@@ -10,6 +10,7 @@ import {
   listerCreneauxOccupes,
   listerRendezVous,
   marquerVenu,
+  reaffecterRendezVous,
 } from "../services/rendezVous.service.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
@@ -113,4 +114,15 @@ export async function compteurs(requete: Request, reponse: Response) {
 /** GET /api/rendez-vous/praticiens */
 export async function praticiens(_requete: Request, reponse: Response) {
   reponse.json({ praticiens: await listerPraticiens() });
+}
+
+const schemaReaffectation = z.object({ praticienId: z.number().int().positive() }).strict();
+
+/** PATCH /api/rendez-vous/:id/praticien : le Médecin chef prend ou réaffecte un rendez-vous prévu. */
+export async function reaffecter(requete: Request, reponse: Response) {
+  const id = lireIdentifiant(requete.params.id);
+  const { praticienId } = schemaReaffectation.parse(requete.body);
+  await reaffecterRendezVous(id, praticienId, lireUtilisateur(requete));
+  diffuser([EVENEMENTS.RENDEZ_VOUS_MODIFIE], { rendezVousId: id });
+  reponse.status(204).end();
 }

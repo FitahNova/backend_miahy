@@ -3,7 +3,7 @@ import { Role } from "../generated/prisma/client.js";
 import { SOIGNANTS } from "../config/constants.js";
 import { exigerConnexion, exigerRole } from "../middleware/auth.js";
 import { gererAsync } from "../utils/asyncHandler.js";
-import { clore, compteurs, creer, disponibilites, lister, praticiens, praticiensOccupes, venu } from "../controllers/rendezVous.controller.js";
+import { clore, compteurs, creer, disponibilites, lister, praticiens, praticiensOccupes, reaffecter, venu } from "../controllers/rendezVous.controller.js";
 
 // Matrice de droits : rendez-vous pour la Secrétaire et les soignants.
 // L'arrivée (« Venu ») et l'absence se notent à l'accueil : Secrétaire seule.
@@ -19,5 +19,7 @@ routeur.get("/", exigerRole(Role.SECRETAIRE, ...SOIGNANTS), gererAsync(lister));
 routeur.post("/", exigerRole(Role.SECRETAIRE, Role.DIRECTION, ...SOIGNANTS), gererAsync(creer));
 routeur.post("/:id/venu", exigerRole(Role.SECRETAIRE), gererAsync(venu));
 routeur.post("/:id/cloture", exigerRole(Role.SECRETAIRE, ...SOIGNANTS), gererAsync(clore));
+// Prendre ou réaffecter un rendez-vous (absence d'un praticien) : Médecin chef seulement.
+routeur.patch("/:id/praticien", exigerRole(Role.MEDECIN_CHEF), gererAsync(reaffecter));
 
 export default routeur;
