@@ -152,7 +152,8 @@ export async function listerPassagesAuComptoir() {
         partPatient: montants.partPatient,
         netAPayer: calculerNetAPayer(montants),
         resteDu: calculerResteDu(montants),
-        convention: convention ? { nom: convention.nom, partPartenaire: convention.partPartenaire } : null,
+        // partenaireId : une facture couverte à 100 % se solde au comptoir sans paiement (convention figée).
+        convention: convention ? { partenaireId: convention.partenaireId, nom: convention.nom, partPartenaire: convention.partPartenaire } : null,
         lignes: facture.lignes.map((ligne) => ({ ...ligne, retirable: estRetirable(ligne, facture) })),
       };
     }),
