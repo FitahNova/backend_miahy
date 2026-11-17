@@ -34,9 +34,9 @@ export interface DonneesPartenaire {
   contact?: string | null;
   /** 0 = aucune prise en charge. */
   tauxPriseEnCharge: number;
-  /** Objets couverts quand le taux est > 0 : un service, une analyse et/ou les médicaments (au moins un). */
-  serviceCouvertId?: number | null;
-  analyseCouverteId?: number | null;
+  /** Objets couverts quand le taux est > 0 : des services, des analyses et/ou les médicaments (au moins un). */
+  serviceIds: number[];
+  analyseIds: number[];
   couvreMedicaments?: boolean;
   programmeIds: number[];
   debut?: string | null;
@@ -54,8 +54,8 @@ const SELECTION_PARTENAIRE = {
   actif: true,
   creeLe: true,
   categorie: { select: { id: true, nom: true } },
-  serviceCouvert: { select: { id: true, nom: true } },
-  analyseCouverte: { select: { id: true, code: true, nom: true } },
+  servicesCouverts: { select: { id: true, nom: true }, orderBy: { nom: "asc" as const } },
+  analysesCouvertes: { select: { id: true, code: true, nom: true }, orderBy: { nom: "asc" as const } },
   programmes: { select: { id: true, nom: true }, orderBy: { id: "asc" as const } },
   documents: {
     orderBy: { ajouteLe: "desc" as const },
@@ -66,29 +66,26 @@ const SELECTION_PARTENAIRE = {
 /** Vérifie la cohérence d'une convention avant écriture (mêmes règles que les contraintes en base). */
 async function verifierConvention(donnees: DonneesPartenaire) {
   if (donnees.tauxPriseEnCharge > 0) {
-    const objets =
-      Number(Boolean(donnees.serviceCouvertId)) + Number(Boolean(donnees.analyseCouverteId)) + Number(Boolean(donnees.couvreMedicaments));
+    const objets = donnees.serviceIds.length + donnees.analyseIds.length + Number(Boolean(donnees.couvreMedicaments));
     if (objets < 1) throw new ErreurHttp(400, "OBJET_COUVERT_REQUIS");
   }
   if (donnees.debut && donnees.fin && donnees.fin < donnees.debut) throw new ErreurHttp(400, "PERIODE_INVALIDE");
 
-  const [categorie, service, analyse, programmes] = await Promise.all([
+  const serviceIds = [...new Set(donnees.serviceIds)];
+  const analyseIds = [...new Set(donnees.analyseIds)];
+  const [categorie, servicesActifs, analysesActives, programmes] = await Promise.all([
     prisma.categoriePartenaire.findUnique({ where: { id: donnees.categorieId }, select: { id: true } }),
-    donnees.serviceCouvertId
-      ? prisma.service.findUnique({ where: { id: donnees.serviceCouvertId }, select: { actif: true } })
-      : Promise.resolve(null),
-    donnees.analyseCouverteId
-      ? prisma.analyse.findUnique({ where: { id: donnees.analyseCouverteId }, select: { actif: true } })
-      : Promise.resolve(null),
+    prisma.service.count({ where: { id: { in: serviceIds }, actif: true } }),
+    prisma.analyse.count({ where: { id: { in: analyseIds }, actif: true } }),
     prisma.programme.count({ where: { id: { in: donnees.programmeIds } } }),
   ]);
   if (!categorie) throw new ErreurHttp(400, "CATEGORIE_PARTENAIRE_INTROUVABLE");
-  if (donnees.serviceCouvertId && !service?.actif) throw new ErreurHttp(400, "SERVICE_INACTIF");
-  if (donnees.analyseCouverteId && !analyse?.actif) throw new ErreurHttp(400, "ANALYSE_INACTIVE");
+  if (servicesActifs !== serviceIds.length) throw new ErreurHttp(400, "SERVICE_INACTIF");
+  if (analysesActives !== analyseIds.length) throw new ErreurHttp(400, "ANALYSE_INACTIVE");
   if (programmes !== new Set(donnees.programmeIds).size) throw new ErreurHttp(400, "PROGRAMME_INCONNU");
 }
 
-/** Champs écrits en base à partir de la saisie (l'objet couvert est vidé si le taux est nul). */
+/** Champs écrits en base à partir de la saisie (les objets couverts sont vidés si le taux est nul). */
 function versDonneesPrisma(donnees: DonneesPartenaire) {
   const couvre = donnees.tauxPriseEnCharge > 0;
   return {
@@ -96,12 +93,17 @@ function versDonneesPrisma(donnees: DonneesPartenaire) {
     categorieId: donnees.categorieId,
     contact: donnees.contact || null,
     tauxPriseEnCharge: donnees.tauxPriseEnCharge,
-    serviceCouvertId: couvre ? (donnees.serviceCouvertId ?? null) : null,
-    analyseCouverteId: couvre ? (donnees.analyseCouverteId ?? null) : null,
     couvreMedicaments: couvre ? Boolean(donnees.couvreMedicaments) : false,
     debut: donnees.debut ? new Date(donnees.debut) : null,
     fin: donnees.fin ? new Date(donnees.fin) : null,
   };
+}
+
+/** Services et analyses couverts, au format Prisma (aucun quand le taux est nul). */
+function objetsCouverts(donnees: DonneesPartenaire) {
+  const couvre = donnees.tauxPriseEnCharge > 0;
+  const enLiens = (ids: number[]) => (couvre ? [...new Set(ids)].map((id) => ({ id })) : []);
+  return { services: enLiens(donnees.serviceIds), analyses: enLiens(donnees.analyseIds) };
 }
 
 /**
@@ -227,7 +229,12 @@ export async function creerPartenaire(donnees: DonneesPartenaire, auteurId: numb
   await verifierConvention(donnees);
   return prisma.$transaction(async (tx) => {
     const partenaire = await tx.partenaire.create({
-      data: { ...versDonneesPrisma(donnees), programmes: { connect: donnees.programmeIds.map((id) => ({ id })) } },
+      data: {
+        ...versDonneesPrisma(donnees),
+        programmes: { connect: donnees.programmeIds.map((id) => ({ id })) },
+        servicesCouverts: { connect: objetsCouverts(donnees).services },
+        analysesCouvertes: { connect: objetsCouverts(donnees).analyses },
+      },
       select: SELECTION_PARTENAIRE,
     });
     await enregistrerAudit(tx, {
@@ -252,7 +259,12 @@ export async function modifierPartenaire(partenaireId: number, donnees: DonneesP
     if (!avant) throw new ErreurHttp(404, "PARTENAIRE_INTROUVABLE");
     const partenaire = await tx.partenaire.update({
       where: { id: partenaireId },
-      data: { ...versDonneesPrisma(donnees), programmes: { set: donnees.programmeIds.map((id) => ({ id })) } },
+      data: {
+        ...versDonneesPrisma(donnees),
+        programmes: { set: donnees.programmeIds.map((id) => ({ id })) },
+        servicesCouverts: { set: objetsCouverts(donnees).services },
+        analysesCouvertes: { set: objetsCouverts(donnees).analyses },
+      },
       select: SELECTION_PARTENAIRE,
     });
     await enregistrerAudit(tx, {

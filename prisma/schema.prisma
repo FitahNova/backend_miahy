@@ -494,7 +494,7 @@ model Service {
   categorie   CategoriePrestation? @relation(fields: [categorieId], references: [id])
   instruction String?              @db.VarChar(500)
   lignes LigneFacture[]
-  partenairesCouvrant Partenaire[]
+  partenairesCouvrant Partenaire[] @relation("PartenaireServices")
 
   @@map("service")
 }
@@ -530,7 +530,7 @@ model Analyse {
   actif       Boolean              @default(true)
   creeLe      DateTime             @default(now()) @map("cree_le") @db.Timestamptz(6)
   lignesFacture LigneFacture[]
-  partenaires   Partenaire[]
+  partenaires   Partenaire[] @relation("PartenaireAnalyses")
 
   @@index([categorieId])
   @@map("analyse")
@@ -660,12 +660,11 @@ model Partenaire {
   categorieId       Int                  @map("categorie_id")
   categorie         CategoriePartenaire  @relation(fields: [categorieId], references: [id])
   contact           String?              @db.VarChar(255)
-  // Convention : un taux appliqué à un ou plusieurs objets couverts (un service, une analyse, les médicaments).
+  // Convention : un taux appliqué aux objets couverts (plusieurs services, plusieurs analyses, les médicaments).
+  // Les anciennes colonnes service_couvert_id et analyse_couverte_id (un seul objet) restent en base, plus lues.
   tauxPriseEnCharge Int                  @default(0) @map("taux_prise_en_charge") @db.SmallInt
-  serviceCouvertId  Int?                 @map("service_couvert_id")
-  serviceCouvert    Service?             @relation(fields: [serviceCouvertId], references: [id])
-  analyseCouverteId Int?                 @map("analyse_couverte_id")
-  analyseCouverte   Analyse?             @relation(fields: [analyseCouverteId], references: [id])
+  servicesCouverts  Service[]            @relation("PartenaireServices")
+  analysesCouvertes Analyse[]            @relation("PartenaireAnalyses")
   couvreMedicaments Boolean              @default(false) @map("couvre_medicaments")
   debut             DateTime?            @db.Date
   fin               DateTime?            @db.Date

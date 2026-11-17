@@ -2,9 +2,10 @@
 
 export interface Convention {
   tauxPriseEnCharge: number;
-  serviceCouvertId: number | null;
-  /** Analyse prise en charge (prix du catalogue). */
-  analyseCouverteId?: number | null;
+  /** Services pris en charge (vide : aucun). */
+  serviceIds: readonly number[];
+  /** Analyses prises en charge, au prix du catalogue (vide : aucune). */
+  analyseIds?: readonly number[];
   couvreMedicaments: boolean;
   actif: boolean;
   debut: Date | null;
@@ -22,21 +23,14 @@ export interface LigneCouvrable {
 
 const jour = (date: Date) => date.toISOString().slice(0, 10);
 
-/** Montant des lignes couvertes : le service, l'analyse de la convention, et/ou tous les médicaments. */
+/** Montant des lignes couvertes : les services, les analyses de la convention, et/ou tous les médicaments. */
 export function montantCouvert(convention: Convention, lignes: readonly LigneCouvrable[]): number {
   return lignes
     .filter((ligne) => {
       const couvreMedicament = convention.couvreMedicaments && ligne.type === "MEDICAMENT";
-      const couvreService =
-        convention.serviceCouvertId !== null &&
-        ligne.type === "ACTE" &&
-        ligne.serviceId !== null &&
-        ligne.serviceId === convention.serviceCouvertId;
+      const couvreService = ligne.type === "ACTE" && ligne.serviceId !== null && convention.serviceIds.includes(ligne.serviceId);
       const couvreAnalyse =
-        convention.analyseCouverteId != null &&
-        ligne.type === "ANALYSE" &&
-        ligne.analyseId != null &&
-        ligne.analyseId === convention.analyseCouverteId;
+        ligne.type === "ANALYSE" && ligne.analyseId != null && (convention.analyseIds ?? []).includes(ligne.analyseId);
       return couvreMedicament || couvreService || couvreAnalyse;
     })
     .reduce((somme, ligne) => somme + ligne.quantite * ligne.prixUnitaire, 0);

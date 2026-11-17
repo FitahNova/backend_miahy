@@ -8,7 +8,7 @@ const TANORA = 2;
 
 const ecole: Convention = {
   tauxPriseEnCharge: 100,
-  serviceCouvertId: CONSULTATION,
+  serviceIds: [CONSULTATION],
   couvreMedicaments: false,
   actif: true,
   debut: new Date("2026-01-01T00:00:00.000Z"),
@@ -29,7 +29,7 @@ describe("Conventions : objet couvert", () => {
   });
 
   it("couvre tous les médicaments quand la convention porte sur les médicaments", () => {
-    assert.equal(montantCouvert({ ...ecole, serviceCouvertId: null, couvreMedicaments: true }, lignes), 1_200);
+    assert.equal(montantCouvert({ ...ecole, serviceIds: [], couvreMedicaments: true }, lignes), 1_200);
   });
   it("couvre l'analyse de la convention, et seulement elle", () => {
     const NFS = 7;
@@ -38,9 +38,22 @@ describe("Conventions : objet couvert", () => {
       { type: "ANALYSE", serviceId: null, analyseId: NFS, quantite: 1, prixUnitaire: 8_000 },
       { type: "ANALYSE", serviceId: null, analyseId: 8, quantite: 1, prixUnitaire: 5_000 },
     ];
-    assert.equal(montantCouvert({ ...ecole, serviceCouvertId: null, analyseCouverteId: NFS }, avecAnalyses), 8_000);
+    assert.equal(montantCouvert({ ...ecole, serviceIds: [], analyseIds: [NFS] }, avecAnalyses), 8_000);
     // Service, analyse et médicaments ensemble : les trois s'additionnent.
-    assert.equal(montantCouvert({ ...ecole, analyseCouverteId: NFS, couvreMedicaments: true }, avecAnalyses), 15_000 + 8_000 + 1_200);
+    assert.equal(montantCouvert({ ...ecole, analyseIds: [NFS], couvreMedicaments: true }, avecAnalyses), 15_000 + 8_000 + 1_200);
+  });
+  it("couvre plusieurs services et plusieurs analyses de la même convention", () => {
+    const ECHOGRAPHIE = 2;
+    const lignesMultiples: LigneCouvrable[] = [
+      { type: "ACTE", serviceId: CONSULTATION, quantite: 1, prixUnitaire: 15_000 },
+      { type: "ACTE", serviceId: ECHOGRAPHIE, quantite: 1, prixUnitaire: 30_000 },
+      { type: "ACTE", serviceId: 3, quantite: 1, prixUnitaire: 9_000 },
+      { type: "ANALYSE", serviceId: null, analyseId: 7, quantite: 1, prixUnitaire: 8_000 },
+      { type: "ANALYSE", serviceId: null, analyseId: 8, quantite: 1, prixUnitaire: 5_000 },
+      { type: "ANALYSE", serviceId: null, analyseId: 9, quantite: 1, prixUnitaire: 4_000 },
+    ];
+    const convention = { ...ecole, serviceIds: [CONSULTATION, ECHOGRAPHIE], analyseIds: [7, 8] };
+    assert.equal(montantCouvert(convention, lignesMultiples), 15_000 + 30_000 + 8_000 + 5_000);
   });
 });
 

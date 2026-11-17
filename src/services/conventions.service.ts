@@ -49,8 +49,8 @@ async function calculerConventionsPossibles(client: Client, facture: FactureLue)
       id: true,
       nom: true,
       tauxPriseEnCharge: true,
-      serviceCouvertId: true,
-      analyseCouverteId: true,
+      servicesCouverts: { select: { id: true } },
+      analysesCouvertes: { select: { id: true } },
       couvreMedicaments: true,
       actif: true,
       debut: true,
@@ -60,7 +60,15 @@ async function calculerConventionsPossibles(client: Client, facture: FactureLue)
   });
   const contexte = { jour: jourDuCentre(facture.creeLe), programmeId: facture.patient.programmeId };
   return partenaires
-    .map((partenaire) => ({ partenaire, convention: { ...partenaire, programmeIds: partenaire.programmes.map((p) => p.id) } }))
+    .map((partenaire) => ({
+      partenaire,
+      convention: {
+        ...partenaire,
+        serviceIds: partenaire.servicesCouverts.map((service) => service.id),
+        analyseIds: partenaire.analysesCouvertes.map((analyse) => analyse.id),
+        programmeIds: partenaire.programmes.map((p) => p.id),
+      },
+    }))
     .filter(({ convention }) => conventionApplicable(convention, contexte, facture.lignes))
     .map(({ partenaire, convention }) => {
       const couvert = montantCouvert(convention, facture.lignes);
