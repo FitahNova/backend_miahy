@@ -9,10 +9,15 @@ describe("Statut des patients (Direction)", () => {
   it("Nouveau : dossier créé après le repère, quel que soit le nombre de venues", () => {
     assert.equal(statutPatient({ creeLe: new Date("2026-11-12T09:30:00Z"), venues: 1, derniereVenue: MAINTENANT }, REPERE, MAINTENANT), "NOUVEAU");
   });
-  it("Fidèle : plus de 10 venues (10 ne suffit pas)", () => {
+  it("Fidèle : au moins 3 venues, la dernière il y a moins de 3 mois", () => {
     const ancien = new Date("2025-01-01T00:00:00Z");
-    assert.equal(statutPatient({ creeLe: ancien, venues: 11, derniereVenue: MAINTENANT }, REPERE, MAINTENANT), "FIDELE");
-    assert.equal(statutPatient({ creeLe: ancien, venues: 10, derniereVenue: MAINTENANT }, REPERE, MAINTENANT), null);
+    const ilYa2Mois = new Date("2026-09-12T10:00:00Z");
+    const ilYa4Mois = new Date("2026-07-12T10:00:00Z");
+    assert.equal(statutPatient({ creeLe: ancien, venues: 3, derniereVenue: ilYa2Mois }, REPERE, MAINTENANT), "FIDELE");
+    assert.equal(statutPatient({ creeLe: ancien, venues: 12, derniereVenue: MAINTENANT }, REPERE, MAINTENANT), "FIDELE");
+    // 2 venues ne suffisent pas ; 3 venues mais plus rien depuis 4 mois non plus.
+    assert.equal(statutPatient({ creeLe: ancien, venues: 2, derniereVenue: MAINTENANT }, REPERE, MAINTENANT), null);
+    assert.equal(statutPatient({ creeLe: ancien, venues: 3, derniereVenue: ilYa4Mois }, REPERE, MAINTENANT), null);
   });
   it("À relancer : une seule venue il y a plus de 6 mois ; récente ou plusieurs venues : non", () => {
     const ancien = new Date("2025-01-01T00:00:00Z");

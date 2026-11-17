@@ -7,7 +7,7 @@ import { normaliserTelephone, MESSAGE_TELEPHONE } from "../utils/telephone.js";
 import { ageEnAnnees, determinerProgrammeParAgeSexe } from "../utils/programmes.js";
 import { champsModifies } from "../utils/audit.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
-import { limiteInactivite, statutPatient, STATUTS_PATIENT, VENUES_FIDELE, type StatutPatient } from "../utils/statutPatient.js";
+import { limiteFidelite, limiteInactivite, statutPatient, STATUTS_PATIENT, VENUES_FIDELE, type StatutPatient } from "../utils/statutPatient.js";
 import { enregistrerAudit } from "./audit.service.js";
 
 const NOMBRE_CHIFFRES_NUMERO_DOSSIER = 4; // MIA-0001 : 8 caractères au total
@@ -180,13 +180,16 @@ async function lireVenuesParPatient(): Promise<VenuesParPatient> {
 }
 
 /**
- * Patients d'un statut (Direction). Fidèle : plus de 10 venues ; À relancer : au plus une venue, rien depuis 6 mois ;
+ * Patients d'un statut (Direction). Fidèle : au moins 3 venues, la dernière il y a moins de 3 mois ; À relancer : au plus une venue, rien depuis 6 mois ;
  * Nouveau : créé après le repère. Un seul statut par patient : un nouveau n'est jamais compté fidèle ou à relancer.
  */
 function filtreStatut(statut: StatutPatient, repere: Date, venues: VenuesParPatient): Prisma.PatientWhereInput {
   if (statut === "NOUVEAU") return { creeLe: { gt: repere } };
   if (statut === "FIDELE") {
-    const fideles = venues.filter((ligne) => ligne._count._all > VENUES_FIDELE).map((ligne) => ligne.patientId);
+    const limiteFidele = limiteFidelite(new Date());
+    const fideles = venues
+      .filter((ligne) => ligne._count._all >= VENUES_FIDELE && ligne._max.heureArrivee !== null && ligne._max.heureArrivee >= limiteFidele)
+      .map((ligne) => ligne.patientId);
     return { id: { in: fideles }, creeLe: { lte: repere } };
   }
   const limite = limiteInactivite(new Date());

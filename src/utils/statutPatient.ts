@@ -1,14 +1,16 @@
 // Statut d'un patient vu par la Direction (décision du 11/11/2026) : un seul statut, dans cet ordre de priorité.
 //  - NOUVEAU : dossier créé depuis la fin de la session précédente de ce compte Direction ;
-//  - FIDELE  : plus de 10 venues ;
+//  - FIDELE  : au moins 3 venues, la dernière il y a moins de 3 mois (patient qui revient régulièrement) ;
 //  - A_RELANCER : une seule venue (ou aucune), et rien depuis plus de 6 mois.
 // Les autres n'ont pas de statut (patients réguliers, ou venus une fois récemment).
 
 export type StatutPatient = "NOUVEAU" | "FIDELE" | "A_RELANCER";
 export const STATUTS_PATIENT = ["NOUVEAU", "FIDELE", "A_RELANCER"] as const;
 
-/** Fidèle : strictement plus de 10 venues. */
-export const VENUES_FIDELE = 10;
+/** Fidèle : au moins 3 venues (décision du 17/11/2026)... */
+export const VENUES_FIDELE = 3;
+/** ... et la dernière venue date de moins de 3 mois. */
+export const MOIS_FIDELE = 3;
 /** À relancer : une seule venue, la dernière date de plus de 6 mois. */
 export const MOIS_INACTIF = 6;
 
@@ -24,6 +26,13 @@ export function limiteInactivite(maintenant: Date): Date {
   return limite;
 }
 
+/** Date après laquelle la dernière venue garde le patient « fidèle ». */
+export function limiteFidelite(maintenant: Date): Date {
+  const limite = new Date(maintenant);
+  limite.setUTCMonth(limite.getUTCMonth() - MOIS_FIDELE);
+  return limite;
+}
+
 /**
  * @param repere début des « nouveaux » pour ce compte Direction (fin de sa session précédente)
  */
@@ -33,7 +42,9 @@ export function statutPatient(
   maintenant: Date = new Date(),
 ): StatutPatient | null {
   if (patient.creeLe > repere) return "NOUVEAU";
-  if (patient.venues > VENUES_FIDELE) return "FIDELE";
+  if (patient.venues >= VENUES_FIDELE && patient.derniereVenue !== null && patient.derniereVenue >= limiteFidelite(maintenant)) {
+    return "FIDELE";
+  }
   const derniere = patient.derniereVenue ?? patient.creeLe;
   if (patient.venues <= 1 && derniere < limiteInactivite(maintenant)) return "A_RELANCER";
   return null;
