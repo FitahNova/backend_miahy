@@ -66,15 +66,8 @@ interface Evenement {
 
 export async function lireDossierPatient(patientId: number, utilisateur: UtilisateurConsultant) {
   const soignant = estSoignant(utilisateur.role);
-  // Médecin chef : tout le dossier, pour prendre ou réaffecter les patients et rendez-vous de ses collègues.
-  const restreint = soignant && utilisateur.role !== Role.MEDECIN_CHEF;
-  if (restreint) {
-    const priseEnCharge = await prisma.passage.findFirst({
-      where: { patientId, praticienId: utilisateur.id },
-      select: { id: true },
-    });
-    if (!priseEnCharge) throw new ErreurHttp(403, "PATIENT_NON_ASSIGNE");
-  }
+  // Dossier commun à tous les soignants (décision du 17/11/2026) : médecins, sages-femmes et médecin chef
+  // voient le dossier complet de chaque patient, quel que soit le praticien de ses venues.
 
   const patient = await prisma.patient.findUnique({
     where: { id: patientId },
@@ -92,7 +85,7 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
 
   const [passages, rendezVous, suivis, modifications] = await Promise.all([
     prisma.passage.findMany({
-      where: { patientId, ...(restreint ? { praticienId: utilisateur.id } : {}) },
+      where: { patientId },
       orderBy: { heureArrivee: "desc" },
       select: {
         id: true,
@@ -150,19 +143,19 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
       },
     }),
     prisma.rendezVous.findMany({
-      where: { patientId, ...(restreint ? { praticienId: utilisateur.id } : {}) },
+      where: { patientId },
       orderBy: { dateHeure: "asc" },
       select: { id: true, dateHeure: true, motif: true, statut: true, praticien: { select: { nom: true } } },
     }),
     prisma.suivi.findMany({
-      where: { patientId, ...(restreint ? { creeParId: utilisateur.id } : {}) },
+      where: { patientId },
       select: {
         type: { select: { nom: true } },
         contacts: { select: { canal: true, resultat: true, date: true } },
       },
     }),
     prisma.journalAudit.findMany({
-      where: { entite: "patient", entiteId: patientId, action: "PATIENT_MODIFIE", ...(restreint ? { utilisateurId: utilisateur.id } : {}) },
+      where: { entite: "patient", entiteId: patientId, action: "PATIENT_MODIFIE" },
       orderBy: { date: "desc" },
       // Toutes les modifications : le dossier les affiche 10 par page.
       select: { date: true, detail: true, utilisateur: { select: { nom: true } } },
