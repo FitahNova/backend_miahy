@@ -432,6 +432,9 @@ model Medicament {
   actif            Boolean             @default(true)
   // Comprimé et gélule : comprimés par plaquette (stock, prix et délivrance par plaquette). Autres formes : 1.
   contenuConditionnement Int           @default(1) @map("contenu_conditionnement")
+  // Consignes du médicament (posologie habituelle, précautions), écrites par la Direction et montrées au praticien
+  // quand il le prescrit. Partagées par les lignes de prix d'un même produit (même nom, forme et catégorie).
+  consignes        String?             @db.VarChar(1000)
   mouvements       MouvementStock[]
   lignesOrdonnance LigneOrdonnance[]
   lignesFacture    LigneFacture[]

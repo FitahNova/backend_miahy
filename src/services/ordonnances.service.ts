@@ -54,7 +54,7 @@ const selectionOrdonnance = {
       instruction: true,
       libelle: true,
       forme: true,
-      medicament: { select: { id: true, nom: true, forme: true, contenuConditionnement: true } },
+      medicament: { select: { id: true, nom: true, forme: true, contenuConditionnement: true, consignes: true } },
     },
     orderBy: { id: "asc" },
   },

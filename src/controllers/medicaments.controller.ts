@@ -45,6 +45,8 @@ const schemaMedicament = z.object({
   datePeremption: z.string().regex(DATE_ISO, "Date attendue : AAAA-MM-JJ").nullish(),
   // Comprimés par plaquette (comprimé, gélule) ; ignoré pour les autres formes.
   contenuConditionnement: z.number().int().min(1).max(1000).optional(),
+  // Vide : pas de consignes.
+  consignes: z.string().trim().max(1000).nullish(),
 });
 
 const schemaModification = schemaMedicament.partial().extend({ confirmationPrix: z.boolean().optional() });

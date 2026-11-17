@@ -3,7 +3,7 @@ import { Prisma, TypeMouvement } from "../generated/prisma/client.js";
 import { TAILLE_PAGE } from "../config/constants.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { estPerime, estProcheDePeremption, observationInventaire } from "../utils/peremption.js";
-import { compterProduitsDisponibles, contenuSelonForme, memeLigneDeStock, uniteDeVente } from "../utils/produits.js";
+import { cleProduit, compterProduitsDisponibles, contenuSelonForme, memeLigneDeStock, uniteDeVente } from "../utils/produits.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 
@@ -34,6 +34,7 @@ const selectionMedicament = {
   datePeremption: true,
   actif: true,
   contenuConditionnement: true,
+  consignes: true,
   categorie: { select: { id: true, nom: true } },
 } as const;
 
@@ -47,6 +48,8 @@ export interface DonneesMedicament {
   datePeremption?: string | null;
   /** Comprimés par plaquette (comprimé, gélule) ; 1 pour les autres formes. */
   contenuConditionnement?: number;
+  /** Consignes montrées au praticien ; vide = aucune. */
+  consignes?: string | null;
 }
 
 export interface DonneesModificationMedicament extends Partial<DonneesMedicament> {
@@ -65,6 +68,34 @@ export interface DonneesApprovisionnement {
   dateReception: string;
   reference?: string | null;
   lignes: LigneApprovisionnement[];
+}
+
+const texteConsignes = (consignes: string | null | undefined) => consignes?.trim() || null;
+
+/** Lignes du même produit (même nom, forme et catégorie), hors la ligne donnée. */
+async function lignesDuProduit(client: Prisma.TransactionClient, produit: { nom: string; forme: string; categorieId: number }, sauf?: number) {
+  const candidates = await client.medicament.findMany({
+    where: { forme: produit.forme, categorieId: produit.categorieId, ...(sauf ? { id: { not: sauf } } : {}) },
+    select: { id: true, nom: true, forme: true, categorieId: true, consignes: true },
+    orderBy: { id: "desc" },
+  });
+  return candidates.filter((ligne) => cleProduit(ligne) === cleProduit(produit));
+}
+
+/** Consignes d'une nouvelle ligne : celles saisies, sinon celles déjà écrites pour ce produit. */
+async function consignesPourNouvelleLigne(client: Prisma.TransactionClient, donnees: DonneesMedicament) {
+  const saisies = texteConsignes(donnees.consignes);
+  if (saisies) return saisies;
+  const lignes = await lignesDuProduit(client, donnees);
+  return lignes.find((ligne) => ligne.consignes)?.consignes ?? null;
+}
+
+/** Consignes saisies à l'ajout : appliquées à toutes les lignes du produit (sans effacer celles déjà écrites si rien n'est saisi). */
+async function partagerConsignesSaisies(client: Prisma.TransactionClient, medicament: { id: number; nom: string; forme: string; categorie: { id: number } }, donnees: DonneesMedicament) {
+  const saisies = texteConsignes(donnees.consignes);
+  if (!saisies) return;
+  const lignes = await lignesDuProduit(client, { nom: medicament.nom, forme: medicament.forme, categorieId: medicament.categorie.id });
+  await client.medicament.updateMany({ where: { id: { in: lignes.map((ligne) => ligne.id) } }, data: { consignes: saisies } });
 }
 
 function estViolationUnique(erreur: unknown): boolean {
@@ -179,6 +210,7 @@ export async function creerMedicament(donnees: DonneesMedicament, auteurId: numb
         seuilAlerte: donnees.seuilAlerte,
         datePeremption: donnees.datePeremption ? new Date(donnees.datePeremption) : null,
         contenuConditionnement: contenuSelonForme(donnees.forme, donnees.contenuConditionnement),
+        consignes: await consignesPourNouvelleLigne(transaction, donnees),
         actif: true,
       },
       select: selectionMedicament,
@@ -233,12 +265,14 @@ export async function ajouterAuStock(donnees: DonneesMedicament & { quantite: nu
             seuilAlerte: donnees.seuilAlerte,
             datePeremption,
             contenuConditionnement,
+            consignes: await consignesPourNouvelleLigne(transaction, donnees),
             actif: true,
           },
           select: selectionMedicament,
         });
 
     if (identique) await verrouillerMedicaments(transaction, [medicament.id]);
+    await partagerConsignesSaisies(transaction, medicament, donnees);
     await transaction.mouvementStock.create({
       data: {
         medicamentId: medicament.id,
@@ -323,6 +357,7 @@ export async function creerMedicamentsEnLot(liste: DonneesMedicament[], auteurId
           seuilAlerte: donnees.seuilAlerte,
           datePeremption: donnees.datePeremption ? new Date(donnees.datePeremption) : null,
           contenuConditionnement: contenuSelonForme(donnees.forme, donnees.contenuConditionnement),
+          consignes: await consignesPourNouvelleLigne(transaction, donnees),
           actif: true,
         },
         select: selectionMedicament,
@@ -400,6 +435,7 @@ export async function modifierMedicament(id: number, donnees: DonneesModificatio
     ...(donnees.prixVente !== undefined ? { prixVente: donnees.prixVente } : {}),
     ...(donnees.seuilAlerte !== undefined ? { seuilAlerte: donnees.seuilAlerte } : {}),
     ...(contenuConditionnement !== undefined ? { contenuConditionnement } : {}),
+    ...(donnees.consignes !== undefined ? { consignes: texteConsignes(donnees.consignes) } : {}),
     ...(donnees.datePeremption !== undefined
       ? { datePeremption: donnees.datePeremption ? new Date(donnees.datePeremption) : null }
       : {}),
@@ -424,6 +460,21 @@ export async function modifierMedicament(id: number, donnees: DonneesModificatio
           ancienPrixVente: existant.prixVente,
           nouveauPrixVente: medicament.prixVente,
         },
+      });
+    }
+
+    // Consignes : les mêmes pour toutes les lignes de prix du produit ; tracées (qui a écrit quoi).
+    if (donnees.consignes !== undefined) {
+      const autres = await lignesDuProduit(transaction, { nom: medicament.nom, forme: medicament.forme, categorieId: medicament.categorie.id }, id);
+      if (autres.length > 0) {
+        await transaction.medicament.updateMany({ where: { id: { in: autres.map((ligne) => ligne.id) } }, data: { consignes: medicament.consignes } });
+      }
+      await enregistrerAudit(transaction, {
+        utilisateurId: auteurId,
+        action: "MODIFICATION_CONSIGNES",
+        entite: "medicament",
+        entiteId: id,
+        detail: { nom: medicament.nom, consignes: medicament.consignes, lignes: autres.length + 1 },
       });
     }
 
@@ -530,7 +581,15 @@ export async function listerMouvementsDuMedicament(id: number, page = 1, taille 
 export async function rechercherPourPrescripteur(terme: string) {
   const medicaments = await prisma.medicament.findMany({
     where: { actif: true, nom: { contains: terme.trim(), mode: "insensitive" } },
-    select: { id: true, nom: true, forme: true, datePeremption: true, contenuConditionnement: true, categorie: { select: { nom: true } } },
+    select: {
+      id: true,
+      nom: true,
+      forme: true,
+      datePeremption: true,
+      contenuConditionnement: true,
+      consignes: true,
+      categorie: { select: { nom: true } },
+    },
     orderBy: { nom: "asc" },
     take: LIMITE_RECHERCHE,
   });
@@ -541,6 +600,7 @@ export async function rechercherPourPrescripteur(terme: string) {
     forme: medicament.forme,
     categorie: medicament.categorie.nom,
     contenuConditionnement: medicament.contenuConditionnement,
+    consignes: medicament.consignes,
     perime: estPerime(medicament.datePeremption),
   }));
 }
