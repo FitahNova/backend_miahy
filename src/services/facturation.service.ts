@@ -348,6 +348,10 @@ export async function obtenirFacture(factureId: number) {
       ...SELECTION_RESUME,
       annuleeLe: true,
       motifAnnulation: true,
+      // Prise en charge par le partenaire de la convention, affichée dans le détail.
+      partPartenaire: true,
+      tauxPartenaire: true,
+      partenaire: { select: { nom: true } },
       lignes: {
         orderBy: { id: "asc" },
         select: { id: true, type: true, libelle: true, quantite: true, prixUnitaire: true, prixBase: true, tauxEtranger: true, tauxSoir: true },

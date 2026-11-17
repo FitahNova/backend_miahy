@@ -214,6 +214,8 @@ export async function obtenirRecuFacture(factureId: number) {
       // Téléphone : repris sur la lettre d'engagement de paiement.
       patient: { select: { numeroDossier: true, nom: true, prenom: true, telephone: true } },
       passage: { select: { heureArrivee: true } },
+      // Partenaire de la convention : sa prise en charge s'affiche sur le reçu.
+      partenaire: { select: { nom: true } },
       lignes: { orderBy: { id: "asc" } },
       paiements: {
         orderBy: { date: "asc" },
@@ -233,6 +235,9 @@ export async function obtenirRecuFacture(factureId: number) {
       total: facture.total,
       remise: facture.remise,
       partPatient: facture.partPatient,
+      partPartenaire: facture.partPartenaire,
+      tauxPartenaire: facture.tauxPartenaire,
+      partenaire: facture.partenaire,
       montantPaye: facture.montantPaye,
       netAPayer: calculerNetAPayer(facture),
       resteDu: calculerResteDu(facture),
