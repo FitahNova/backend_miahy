@@ -121,14 +121,19 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
         passage: { select: { praticien: { select: { civilite: true, nom: true, prenom: true } } } },
       },
     }),
-    prisma.service.findMany({ where: { actif: true }, orderBy: { id: "asc" }, select: { id: true, nom: true, prix: true } }),
+    // Catégorie : la fiche de consultation range les actes par catégorie.
+    prisma.service.findMany({
+      where: { actif: true },
+      orderBy: { id: "asc" },
+      select: { id: true, nom: true, prix: true, categorie: { select: { nom: true } } },
+    }),
     prochainRendezVousDuPatient(passage.patient.id),
     lireParametresTarification(),
     // Analyses proposées au praticien : actives et tarifées (une analyse « à fixer » ne se prescrit pas encore).
     prisma.analyse.findMany({
       where: { actif: true, prix: { not: null } },
       orderBy: { nom: "asc" },
-      select: { id: true, code: true, nom: true, prix: true, instruction: true },
+      select: { id: true, code: true, nom: true, prix: true, instruction: true, categorie: { select: { nom: true } } },
     }),
   ]);
 
