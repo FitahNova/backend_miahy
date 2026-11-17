@@ -5,6 +5,7 @@ import { ErreurHttp } from "../utils/errors.js";
 import { estPerime, estProcheDePeremption, observationInventaire } from "../utils/peremption.js";
 import { cleProduit, compterProduitsDisponibles, contenuSelonForme, memeLigneDeStock, uniteDeVente } from "../utils/produits.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
+import { JOURS_DEMANDE, regrouperDemandes, type MedicamentDemande } from "../utils/demandes.js";
 import { enregistrerAudit } from "./audit.service.js";
 
 const CODE_VIOLATION_UNIQUE = "P2002";
@@ -603,6 +604,30 @@ export async function rechercherPourPrescripteur(terme: string) {
     consignes: medicament.consignes,
     perime: estPerime(medicament.datePeremption),
   }));
+}
+
+// ---------- Médicaments demandés (cloche de la Direction) ----------
+
+const JOUR_MS = 24 * 60 * 60 * 1000;
+
+/** Médicaments manquants demandés par plusieurs patients sur les JOURS_DEMANDE derniers jours (règle : utils/demandes). */
+export async function listerMedicamentsDemandes(maintenant = new Date()): Promise<MedicamentDemande[]> {
+  const depuis = new Date(maintenant.getTime() - JOURS_DEMANDE * JOUR_MS);
+  const lignes = await prisma.ligneOrdonnance.findMany({
+    where: { ordonnance: { creeLe: { gte: depuis } } },
+    select: { medicamentId: true, libelle: true, forme: true, ordonnance: { select: { passage: { select: { patientId: true } } } } },
+  });
+  if (lignes.length === 0) return [];
+
+  const medicaments = await prisma.medicament.findMany({
+    where: { actif: true },
+    select: { id: true, nom: true, forme: true, categorieId: true, datePeremption: true },
+  });
+  const stocks = await calculerStocks(prisma, medicaments.map((medicament) => medicament.id));
+  return regrouperDemandes(
+    lignes.map((ligne) => ({ medicamentId: ligne.medicamentId, libelle: ligne.libelle, forme: ligne.forme, patientId: ligne.ordonnance.passage.patientId })),
+    medicaments.map((medicament) => ({ ...medicament, stock: stocks.get(medicament.id) ?? 0, perime: estPerime(medicament.datePeremption) })),
+  );
 }
 
 export async function rechercherPourComptoir(terme: string) {

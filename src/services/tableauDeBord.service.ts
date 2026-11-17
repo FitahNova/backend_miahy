@@ -12,7 +12,8 @@
 import { JOURS_ALERTE_PEREMPTION } from "../config/constants.js";
 import { prisma } from "../config/prisma.js";
 import { Role, StatutFacture, StatutRendezVous } from "../generated/prisma/client.js";
-import { calculerStocks } from "./medicaments.service.js";
+import { calculerStocks, listerMedicamentsDemandes } from "./medicaments.service.js";
+import { JOURS_DEMANDE } from "../utils/demandes.js";
 import { lireTotalMensuel } from "./charges.service.js";
 import { compterAlertesStock } from "../utils/peremption.js";
 
@@ -191,6 +192,26 @@ export async function obtenirAlertes(role: Role) {
     // Seule la Direction fixe les prix.
     if (role === Role.DIRECTION) {
       ajouter("sansPrix", compte.sansPrix, "médicament en stock sans prix de vente", "médicaments en stock sans prix de vente", "stock", "erreur");
+    }
+  }
+
+  // Médicaments manquants demandés par plusieurs patients : la Direction commande (rupture) ou ajoute le produit (absent du centre).
+  if (role === Role.DIRECTION) {
+    for (const demande of await listerMedicamentsDemandes()) {
+      const nom = demande.forme ? `${demande.nom} (${demande.forme})` : demande.nom;
+      const rupture = demande.type === "RUPTURE";
+      const parametres = new URLSearchParams(
+        rupture
+          ? { onglet: "rupture", patients: String(demande.patients), ...(demande.medicamentId ? { demande: String(demande.medicamentId) } : {}) }
+          : { onglet: "rupture", nouveau: demande.nom, patients: String(demande.patients), ...(demande.forme ? { forme: demande.forme } : {}) },
+      );
+      alertes.push({
+        cle: `demande:${demande.type}:${demande.cle}`,
+        nombre: demande.patients,
+        libelle: `patients ont eu besoin de ${nom} ces ${JOURS_DEMANDE} jours · ${rupture ? "en rupture, à commander" : "absent du centre"}`,
+        lien: `/medicaments?${parametres.toString()}`,
+        gravite: rupture ? "erreur" : "avertissement",
+      });
     }
   }
 
