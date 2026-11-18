@@ -57,7 +57,12 @@ export function regrouperDemandes(lignes: LignePrescrite[], medicaments: Medicam
     produits.set(cle, produit);
   }
 
-  const nomsDuCentre = new Set(medicaments.map((medicament) => nomCompare(medicament.nom)));
+  // Nom d'un produit du centre : prescrit hors stock (rupture, périmé), il compte pour ce produit.
+  const produitDuNom = new Map<string, string>();
+  for (const medicament of medicaments) {
+    const nom = nomCompare(medicament.nom);
+    if (!produitDuNom.has(nom)) produitDuNom.set(nom, cleProduit(medicament));
+  }
   const horsCentre = new Map<string, { nom: string; formes: Map<string, number>; patients: Set<number> }>();
   for (const ligne of lignes) {
     if (ligne.medicamentId !== null) {
@@ -68,8 +73,12 @@ export function regrouperDemandes(lignes: LignePrescrite[], medicaments: Medicam
     const nom = ligne.libelle?.trim();
     if (!nom) continue;
     const cle = nomCompare(nom);
-    // Ajouté depuis à la liste du centre : il ne manque plus (sa rupture éventuelle est suivie comme produit).
-    if (nomsDuCentre.has(cle)) continue;
+    // Médicament de la liste du centre (en rupture quand il a été prescrit) : suivi comme produit.
+    const produitConnu = produitDuNom.get(cle);
+    if (produitConnu) {
+      produits.get(produitConnu)?.patients.add(ligne.patientId);
+      continue;
+    }
     const demande = horsCentre.get(cle) ?? { nom, formes: new Map<string, number>(), patients: new Set<number>() };
     demande.patients.add(ligne.patientId);
     if (ligne.forme) demande.formes.set(ligne.forme, (demande.formes.get(ligne.forme) ?? 0) + 1);

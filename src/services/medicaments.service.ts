@@ -577,7 +577,8 @@ export async function listerMouvementsDuMedicament(id: number, page = 1, taille 
 }
 
 // ---------- Recherche pour les soignants et le comptoir ----------
-// Le prescripteur ne voit ni stock ni prix. Le comptoir voit le prix de vente et une disponibilité (oui/non), jamais la quantité.
+// Le prescripteur ne voit que les médicaments disponibles (en stock, non périmés), jamais la quantité ni le prix :
+// le reste se prescrit « hors stock ». Le comptoir voit le prix de vente et une disponibilité (oui/non).
 
 export async function rechercherPourPrescripteur(terme: string) {
   const medicaments = await prisma.medicament.findMany({
@@ -592,17 +593,23 @@ export async function rechercherPourPrescripteur(terme: string) {
       categorie: { select: { nom: true } },
     },
     orderBy: { nom: "asc" },
-    take: LIMITE_RECHERCHE,
+    // Plus large que la limite : les lignes en rupture ou périmées sont écartées ensuite.
+    take: LIMITE_RECHERCHE * 3,
   });
-  // Un médicament périmé reste affiché (grisé) mais ne peut pas être prescrit.
-  return medicaments.map((medicament) => ({
+  const stocks = await calculerStocks(prisma, medicaments.map((medicament) => medicament.id));
+  // En rupture ou périmé : pas proposé ; le praticien le prescrit hors stock (et peut en demander la commande).
+  const disponibles = medicaments
+    .filter((medicament) => (stocks.get(medicament.id) ?? 0) > 0 && !estPerime(medicament.datePeremption))
+    .slice(0, LIMITE_RECHERCHE);
+  return disponibles.map((medicament) => ({
     id: medicament.id,
     nom: medicament.nom,
     forme: medicament.forme,
     categorie: medicament.categorie.nom,
     contenuConditionnement: medicament.contenuConditionnement,
     consignes: medicament.consignes,
-    perime: estPerime(medicament.datePeremption),
+    perime: false,
+    disponible: true,
   }));
 }
 

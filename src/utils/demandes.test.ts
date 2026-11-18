@@ -47,7 +47,14 @@ describe("Médicaments demandés : absent du centre", () => {
     assert.deepEqual({ type: demandes[0].type, forme: demandes[0].forme, patients: demandes[0].patients }, { type: "HORS_CENTRE", forme: "gélule", patients: 3 });
   });
 
-  it("ne le signale plus une fois ajouté à la liste du centre", () => {
+  it("compte pour le produit du centre en rupture quand il est prescrit hors stock sous son nom", () => {
+    const lignes = [horsStock("paracetamol 500", 10), horsStock("Paracétamol 500", 11), duStock(1, 12)];
+    const demandes = regrouperDemandes(lignes, [medicament(1, "Paracétamol 500", 0)]);
+    assert.equal(demandes.length, 1);
+    assert.deepEqual({ type: demandes[0].type, patients: demandes[0].patients }, { type: "RUPTURE", patients: 3 });
+  });
+
+  it("ne le signale plus une fois ajouté à la liste du centre et en stock", () => {
     const lignes = [horsStock("Amoxicilline", 10), horsStock("Amoxicilline", 11), horsStock("Amoxicilline", 12)];
     assert.equal(regrouperDemandes(lignes, [medicament(5, "Amoxicilline", 20)]).length, 0);
   });
