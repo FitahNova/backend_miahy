@@ -1,4 +1,6 @@
 import { prisma } from "../config/prisma.js";
+import { calculerStocks } from "./medicaments.service.js";
+import { estPerime } from "../utils/peremption.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { nomCompare } from "../utils/demandes.js";
@@ -67,7 +69,21 @@ export interface DemandesRegroupees {
   derniere: Date;
 }
 
-/** Demandes encore ouvertes, regroupées par médicament, la plus récente d'abord. */
+/** Noms (comparés) des médicaments disponibles au centre : en stock et non périmés. */
+async function nomsDisponibles(): Promise<Set<string>> {
+  const medicaments = await prisma.medicament.findMany({ where: { actif: true }, select: { id: true, nom: true, datePeremption: true } });
+  const stocks = await calculerStocks(prisma, medicaments.map((medicament) => medicament.id));
+  return new Set(
+    medicaments
+      .filter((medicament) => (stocks.get(medicament.id) ?? 0) > 0 && !estPerime(medicament.datePeremption))
+      .map((medicament) => nomCompare(medicament.nom)),
+  );
+}
+
+/**
+ * Demandes encore ouvertes, regroupées par médicament, la plus récente d'abord. Seuls les médicaments hors stock comptent :
+ * une demande d'un médicament disponible au centre (stock revenu, ou saisi hors stock par erreur) n'est pas à commander.
+ */
 export async function listerDemandesOuvertes(): Promise<DemandesRegroupees[]> {
   const demandes = await prisma.demandeMedicament.findMany({
     where: { traiteeLe: null },
@@ -99,7 +115,9 @@ export async function listerDemandesOuvertes(): Promise<DemandesRegroupees[]> {
     if (!groupe.demandeurs.includes(auteur)) groupe.demandeurs.push(auteur);
     groupes.set(cle, groupe);
   }
-  return [...groupes.values()];
+  if (groupes.size === 0) return [];
+  const disponibles = await nomsDisponibles();
+  return [...groupes.values()].filter((groupe) => !disponibles.has(groupe.cle));
 }
 
 /** La Direction a commandé (ou décidé) : toutes les demandes ouvertes de ce médicament sont traitées. */
