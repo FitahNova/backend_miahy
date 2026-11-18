@@ -95,6 +95,8 @@ model Utilisateur {
   suivisClotures      Suivi[]        @relation("SuivisClotures")
   contactsSuivi       ContactSuivi[]
   versementsPartenaires VersementPartenaire[]
+  demandesMedicament  DemandeMedicament[] @relation("DemandesMedicament")
+  demandesMedicamentTraitees DemandeMedicament[] @relation("DemandesMedicamentTraitees")
 
   @@map("utilisateur")
 }
@@ -435,6 +437,7 @@ model Medicament {
   // Consignes du médicament (posologie habituelle, précautions), écrites par la Direction et montrées au praticien
   // quand il le prescrit. Partagées par les lignes de prix d'un même produit (même nom, forme et catégorie).
   consignes        String?             @db.VarChar(1000)
+  demandes         DemandeMedicament[]
   mouvements       MouvementStock[]
   lignesOrdonnance LigneOrdonnance[]
   lignesFacture    LigneFacture[]
@@ -464,6 +467,27 @@ model MouvementStock {
 
   @@index([medicamentId])
   @@map("mouvement_stock")
+}
+
+// Demande de commande d'un médicament, envoyée par un soignant depuis l'ordonnance : médicament absent du centre
+// (nom saisi) ou en rupture (medicamentId). Vue par la Direction et le Médecin chef ; la Direction la marque traitée.
+model DemandeMedicament {
+  id           Int          @id @default(autoincrement())
+  nom          String       @db.VarChar(150)
+  forme        String?      @db.VarChar(30)
+  medicamentId Int?         @map("medicament_id")
+  medicament   Medicament?  @relation(fields: [medicamentId], references: [id])
+  demandeurId  Int          @map("demandeur_id")
+  demandeur    Utilisateur  @relation("DemandesMedicament", fields: [demandeurId], references: [id])
+  // Passage de la consultation où la demande a été faite (repère, sans lien imposé).
+  passageId    Int?         @map("passage_id")
+  creeLe       DateTime     @default(now()) @map("cree_le") @db.Timestamptz(6)
+  traiteeLe    DateTime?    @map("traitee_le") @db.Timestamptz(6)
+  traiteeParId Int?         @map("traitee_par_id")
+  traiteePar   Utilisateur? @relation("DemandesMedicamentTraitees", fields: [traiteeParId], references: [id])
+
+  @@index([traiteeLe])
+  @@map("demande_medicament")
 }
 
 model Fournisseur {

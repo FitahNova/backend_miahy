@@ -14,6 +14,7 @@ import { prisma } from "../config/prisma.js";
 import { Role, StatutFacture, StatutRendezVous } from "../generated/prisma/client.js";
 import { calculerStocks, listerMedicamentsDemandes } from "./medicaments.service.js";
 import { JOURS_DEMANDE } from "../utils/demandes.js";
+import { listerDemandesOuvertes } from "./demandesMedicament.service.js";
 import { lireTotalMensuel } from "./charges.service.js";
 import { compterAlertesStock } from "../utils/peremption.js";
 
@@ -192,6 +193,21 @@ export async function obtenirAlertes(role: Role) {
     // Seule la Direction fixe les prix.
     if (role === Role.DIRECTION) {
       ajouter("sansPrix", compte.sansPrix, "médicament en stock sans prix de vente", "médicaments en stock sans prix de vente", "stock", "erreur");
+    }
+  }
+
+  // Demandes de commande envoyées par les soignants depuis l'ordonnance : Direction (qui commande) et Médecin chef.
+  if (ROLES_ALERTE_STOCK.includes(role)) {
+    for (const demande of await listerDemandesOuvertes()) {
+      const nom = demande.forme ? `${demande.nom} (${demande.forme})` : demande.nom;
+      const qui = demande.demandeurs.slice(0, 2).join(", ") + (demande.demandeurs.length > 2 ? "…" : "");
+      alertes.push({
+        cle: `demande-soignant:${demande.cle}`,
+        nombre: demande.nombre,
+        libelle: `${demande.nombre > 1 ? "demandes" : "demande"} de commande · ${nom} · par ${qui}`,
+        lien: "/medicaments?onglet=rupture&demandes=1",
+        gravite: "avertissement",
+      });
     }
   }
 

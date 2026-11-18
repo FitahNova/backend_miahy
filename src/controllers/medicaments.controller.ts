@@ -27,6 +27,7 @@ import {
   supprimerCategorie,
 } from "../services/medicaments.service.js";
 import { TAILLE_PAGE, TAILLE_PAGE_MAXIMALE } from "../config/constants.js";
+import { creerDemandeMedicament, listerDemandesOuvertes, traiterDemandes } from "../services/demandesMedicament.service.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { lireIdentifiant } from "../utils/parametres.js";
 import { EVENEMENTS } from "../realtime/events.js";
@@ -167,6 +168,36 @@ export async function ajusterStockMedicament(requete: Request, reponse: Response
 export async function rechercherPrescripteur(requete: Request, reponse: Response) {
   const { q } = schemaRecherche.parse(requete.query);
   reponse.json({ medicaments: await rechercherPourPrescripteur(q) });
+}
+
+// Demande de commande depuis l'ordonnance : médicament du centre en rupture (medicamentId) ou absent du centre (nom).
+const schemaDemande = z
+  .object({
+    medicamentId: z.number().int().positive().nullish(),
+    nom: z.string().trim().max(150).nullish(),
+    forme: z.enum(FORMES_MEDICAMENT).nullish(),
+    passageId: z.number().int().positive().nullish(),
+  })
+  .refine((donnees) => Boolean(donnees.medicamentId || donnees.nom?.trim()), "Médicament ou nom obligatoire");
+
+export async function demanderMedicament(requete: Request, reponse: Response) {
+  const resultat = await creerDemandeMedicament(schemaDemande.parse(requete.body), lireAuteur(requete));
+  // La cloche de la Direction et du Médecin chef se met à jour.
+  if (!resultat.dejaEnvoyee) diffuser(EVENEMENTS.STOCK_MODIFIE);
+  reponse.status(resultat.dejaEnvoyee ? 200 : 201).json(resultat);
+}
+
+export async function obtenirDemandesMedicament(_requete: Request, reponse: Response) {
+  reponse.json({ demandes: await listerDemandesOuvertes() });
+}
+
+const schemaTraitement = z.object({ cle: z.string().trim().min(1).max(150) });
+
+export async function marquerDemandesTraitees(requete: Request, reponse: Response) {
+  const { cle } = schemaTraitement.parse(requete.body);
+  const resultat = await traiterDemandes(cle, lireAuteur(requete));
+  diffuser(EVENEMENTS.STOCK_MODIFIE);
+  reponse.json(resultat);
 }
 
 export async function rechercherComptoir(requete: Request, reponse: Response) {

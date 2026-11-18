@@ -12,6 +12,9 @@ import {
   ajouterMedicamentsEnLot,
   ajusterStockMedicament,
   changerActif,
+  demanderMedicament,
+  marquerDemandesTraitees,
+  obtenirDemandesMedicament,
   mettreAJourMedicament,
   modifierActifFournisseur,
   modifierCategorie,
@@ -32,7 +35,7 @@ import {
 const DIRECTION_SEULE = [Role.DIRECTION];
 // Lecture du stock (page Médicaments) : Direction, et Médecin chef en lecture seule (décision du 29/10/2026).
 const LECTURE_STOCK = [Role.DIRECTION, Role.MEDECIN_CHEF];
-// Recherche pour l'ordonnance : soignants prescripteurs, sans stock ni prix.
+// Recherche pour l'ordonnance : soignants prescripteurs, sans quantité ni prix (seulement disponible ou en rupture).
 const PRESCRIPTEURS = [Role.MEDECIN_CHEF, Role.MEDECIN, Role.SAGE_FEMME];
 // Recherche pour le comptoir : secrétaire (et Direction), avec prix de vente et disponibilité.
 const COMPTOIR = [Role.SECRETAIRE, Role.DIRECTION];
@@ -42,6 +45,11 @@ routeur.use(exigerConnexion);
 
 routeur.get("/recherche/prescripteur", exigerRole(...PRESCRIPTEURS), gererAsync(rechercherPrescripteur));
 routeur.get("/recherche/comptoir", exigerRole(...COMPTOIR), gererAsync(rechercherComptoir));
+
+// Demandes de commande : envoyées par les soignants, vues par la Direction et le Médecin chef, traitées par la Direction.
+routeur.post("/demandes", exigerRole(...PRESCRIPTEURS), gererAsync(demanderMedicament));
+routeur.get("/demandes", exigerRole(...LECTURE_STOCK), gererAsync(obtenirDemandesMedicament));
+routeur.post("/demandes/traiter", exigerRole(...DIRECTION_SEULE), gererAsync(marquerDemandesTraitees));
 
 routeur.get("/", exigerRole(...LECTURE_STOCK), gererAsync(obtenirMedicaments));
 routeur.get("/categories", exigerRole(...LECTURE_STOCK), gererAsync(obtenirCategories));

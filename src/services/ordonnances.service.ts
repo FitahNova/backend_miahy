@@ -8,6 +8,8 @@ import { estQuantiteEcrite } from "../utils/produits.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
 import { journaliserAcces } from "./journal.service.js";
+import { calculerStocks } from "./medicaments.service.js";
+import { nomCompare } from "../utils/demandes.js";
 
 export interface LigneOrdonnanceSaisie {
   /** Médicament du stock du centre. Absent : médicament hors stock, nommé par « libelle » (prescription seule). */
@@ -87,7 +89,23 @@ export async function obtenirOrdonnanceDuPassage(passageId: number, utilisateur:
   // Trace de la lecture avant de renvoyer l'ordonnance.
   await journaliserAcces(utilisateur.id, "LECTURE_ORDONNANCE", "passage", passageId);
 
-  return prisma.ordonnance.findUnique({ where: { passageId }, select: selectionOrdonnance });
+  const ordonnance = await prisma.ordonnance.findUnique({ where: { passageId }, select: selectionOrdonnance });
+  if (!ordonnance) return null;
+
+  // Disponible ou en rupture (sans la quantité), et médicaments dont la commande est déjà demandée pour ce passage.
+  const ids = ordonnance.lignes.flatMap((ligne) => (ligne.medicament ? [ligne.medicament.id] : []));
+  const [stocks, demandes] = await Promise.all([
+    calculerStocks(prisma, ids),
+    prisma.demandeMedicament.findMany({ where: { passageId, traiteeLe: null }, select: { nom: true } }),
+  ]);
+  return {
+    ...ordonnance,
+    lignes: ordonnance.lignes.map((ligne) => ({
+      ...ligne,
+      medicament: ligne.medicament ? { ...ligne.medicament, disponible: (stocks.get(ligne.medicament.id) ?? 0) > 0 } : null,
+    })),
+    demandesEnvoyees: [...new Set(demandes.map((demande) => nomCompare(demande.nom)))],
+  };
 }
 
 // Remplace le contenu de l'ordonnance, pendant la consultation seulement.
