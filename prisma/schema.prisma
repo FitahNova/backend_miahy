@@ -619,7 +619,7 @@ enum Civilite {
   @@map("civilite")
 }
 
-// Garde de jour (7 h 30 à 18 h) ou de nuit (18 h à 7 h 30 le lendemain), datée du jour où elle commence.
+// Garde de jour (8 h à 18 h) ou de nuit (18 h à 8 h le lendemain), datée du jour où elle commence.
 enum PeriodeGarde {
   JOUR @map("jour")
   NUIT @map("nuit")
