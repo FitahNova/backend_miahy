@@ -29,6 +29,8 @@ const selectionPassage = {
   praticien: { select: { id: true, civilite: true, prenom: true, nom: true, role: true } },
   // Arrivé sur rendez-vous (« Venu ») : appelé avant les patients sans rendez-vous.
   rendezVous: { select: { id: true, dateHeure: true } },
+  // Hospitalisé (acte « Hospitalisation courte ») : la file affiche « Hospitalisé » tant qu'il n'est pas sorti.
+  hospitalisation: { select: { sortiePrevue: true, sortieLe: true } },
 } satisfies Prisma.PassageSelect;
 
 // Statuts d'où l'on peut passer à chaque cible par un changement manuel (soignants seulement).

@@ -58,6 +58,8 @@ export async function listerFacturesEnAttenteDePaiement() {
     include: {
       patient: { select: { id: true, numeroDossier: true, nom: true, prenom: true } },
       lignes: { orderBy: { id: "asc" } },
+      // Patient hospitalisé : la caisse le voit, la facture s'encaisse à sa sortie.
+      passage: { select: { hospitalisation: { select: { sortiePrevue: true, sortieLe: true } } } },
     },
   });
   // R089 : tant que la convention n'est pas figée, la caisse voit celles qui s'appliquent pour choisir.

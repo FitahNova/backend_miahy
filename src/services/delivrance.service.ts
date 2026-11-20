@@ -69,6 +69,8 @@ export async function listerPassagesAuComptoir() {
       statut: true,
       heureArrivee: true,
       patient: { select: { id: true, numeroDossier: true, nom: true, prenom: true } },
+      // Hospitalisé : le comptoir le signale (la facture s'encaisse à la sortie).
+      hospitalisation: { select: { sortiePrevue: true, sortieLe: true } },
       ordonnance: {
         select: {
           lignes: {
