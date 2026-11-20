@@ -122,11 +122,14 @@ export async function listerPassagesAuComptoir() {
 
   // Convention pas encore figée : elle le sera au premier paiement et baissera la part patient.
   // Le comptoir affiche et encaisse donc déjà ce montant (sinon : « le montant dépasse le reste dû »).
-  // Plusieurs conventions possibles : rien n'est anticipé, la caisse demandera de choisir.
-  const conventions = new Map<number, Awaited<ReturnType<typeof conventionsPossibles>>[number]>();
+  // Plusieurs conventions possibles : rien n'est anticipé, la secrétaire choisit au comptoir avant d'encaisser.
+  type Possible = Awaited<ReturnType<typeof conventionsPossibles>>[number];
+  const conventions = new Map<number, Possible>();
+  const aChoisir = new Map<number, Possible[]>();
   for (const facture of passages.flatMap((passage) => passage.factures)) {
     const possibles = await conventionsPossibles(facture.id);
     if (possibles.length === 1) conventions.set(facture.id, possibles[0]!);
+    if (possibles.length > 1) aChoisir.set(facture.id, possibles);
   }
 
   return passages.map(({ ordonnance, factures, ...passage }) => ({
@@ -156,6 +159,12 @@ export async function listerPassagesAuComptoir() {
         resteDu: calculerResteDu(montants),
         // partenaireId : une facture couverte à 100 % se solde au comptoir sans paiement (convention figée).
         convention: convention ? { partenaireId: convention.partenaireId, nom: convention.nom, partPartenaire: convention.partPartenaire } : null,
+        // Plusieurs prises en charge possibles : la secrétaire en choisit une (ou aucune) avant d'encaisser.
+        conventionsAChoisir: (aChoisir.get(facture.id) ?? []).map((possible) => ({
+          partenaireId: possible.partenaireId,
+          nom: possible.nom,
+          partPartenaire: possible.partPartenaire,
+        })),
         lignes: facture.lignes.map((ligne) => ({ ...ligne, retirable: estRetirable(ligne, facture) })),
       };
     }),
