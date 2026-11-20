@@ -6,7 +6,7 @@ stages:
   - dependency_scan
   - docker_build
   - image_scan
-  - dast
+  - zap_baseline
   - sign_image
   - push
   - deploy
@@ -135,8 +135,8 @@ image_scan:
     - trivy image --timeout 20m --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_DIGEST_REF"
 
 
-dast:
-  stage: dast
+zap_baseline:
+  stage: zap_baseline
   image:
     name: zaproxy/zap-stable
     entrypoint: [""]
