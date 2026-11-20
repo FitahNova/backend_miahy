@@ -1,6 +1,6 @@
 import { prisma } from "../config/prisma.js";
 import { SOIGNANTS } from "../config/constants.js";
-import { Role } from "../generated/prisma/client.js";
+import { Orientation, Role, StatutFacture, TypeLigneFacture } from "../generated/prisma/client.js";
 import { ErreurHttp } from "../utils/errors.js";
 import { OPTIONS_TRANSACTION } from "../utils/transactions.js";
 import { enregistrerAudit } from "./audit.service.js";
@@ -92,6 +92,8 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
         motif: true,
         urgence: true,
         heureArrivee: true,
+        orientation: true,
+        resultatRemisLe: true,
         praticien: { select: { nom: true } },
         consultation: {
           select: {
@@ -138,6 +140,8 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
             statut: true,
             montantPaye: true,
             paiements: { orderBy: { date: "desc" }, select: { montant: true, mode: true, date: true } },
+            // Analyses facturées (onglet « Analyses ») : nom et code, sans résultat.
+            lignes: { where: { type: TypeLigneFacture.ANALYSE }, orderBy: { id: "asc" }, select: { libelle: true, analyse: { select: { code: true } } } },
           },
         },
       },
@@ -226,6 +230,26 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
             ]
           : [],
       )
+    : [];
+
+  // Analyses du patient (onglet « Analyses », soignants) : internes (prescrites en consultation) ou externes
+  // (analyse seule), avec la remise du résultat. Le résultat lui-même n'est pas dans l'application.
+  const analyses = clinique
+    ? passages.flatMap((passage) => {
+        const lignes = passage.factures.filter((facture) => facture.statut !== StatutFacture.ANNULEE).flatMap((facture) => facture.lignes);
+        if (lignes.length === 0) return [];
+        const externe = passage.orientation === Orientation.ANALYSE;
+        return [
+          {
+            passageId: passage.id,
+            date: passage.heureArrivee,
+            origine: externe ? ("EXTERNE" as const) : ("INTERNE" as const),
+            prescripteur: externe ? null : (passage.praticien?.nom ?? null),
+            analyses: lignes.map((ligne) => ({ nom: ligne.libelle, code: ligne.analyse?.code ?? null })),
+            remisLe: passage.resultatRemisLe,
+          },
+        ];
+      })
     : [];
 
   // Les documents sont listés dans le dossier ; l'API d'impression reste réservée aux rôles autorisés.
@@ -361,6 +385,7 @@ export async function lireDossierPatient(patientId: number, utilisateur: Utilisa
     },
     mesures,
     ordonnances,
+    analyses,
     documents,
     rendezVous: rendezVous.map((rdv) => ({
       id: rdv.id,
