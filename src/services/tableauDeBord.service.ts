@@ -15,6 +15,7 @@ import { Role, StatutFacture, StatutRendezVous } from "../generated/prisma/clien
 import { calculerStocks, listerMedicamentsDemandes } from "./medicaments.service.js";
 import { JOURS_DEMANDE } from "../utils/demandes.js";
 import { listerDemandesOuvertes } from "./demandesMedicament.service.js";
+import { compterSortiesDepassees } from "./hospitalisations.service.js";
 import { lireTotalMensuel } from "./charges.service.js";
 import { compterAlertesStock } from "../utils/peremption.js";
 
@@ -176,6 +177,20 @@ export async function obtenirAlertes(role: Role) {
   const rdvEnRetard = await prisma.rendezVous.count({
     where: { statut: StatutRendezVous.PREVU, dateHeure: { lt: new Date() } },
   });
+  // Hospitalisations dont la sortie prévue est passée : un soignant prolonge ou fait sortir ; la secrétaire relance.
+  if (role !== Role.DIRECTION) {
+    const depassees = await compterSortiesDepassees();
+    if (depassees) {
+      alertes.push({
+        cle: "hospitalisations",
+        nombre: depassees,
+        libelle: depassees > 1 ? "hospitalisations dont la sortie prévue est dépassée" : "hospitalisation dont la sortie prévue est dépassée",
+        lien: "/hospitalisations",
+        gravite: "erreur",
+      });
+    }
+  }
+
   if (rdvEnRetard) {
     alertes.push({ cle: "rdv", nombre: rdvEnRetard, libelle: "rendez-vous dépassés à traiter", lien: role === Role.DIRECTION ? null : "/rendez-vous", gravite: "erreur" });
   }

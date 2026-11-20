@@ -16,6 +16,10 @@ const schemaConsultation = z
     actes: z.array(z.number().int().positive()).min(1).max(20).optional(),
     // Analyses prescrites : facultatives (liste vide = aucune).
     analyses: z.array(z.number().int().positive()).max(40).optional(),
+    // Acte d'hospitalisation parmi les actes : sortie choisie par le soignant (sinon calculée) et motif.
+    hospitalisation: z
+      .object({ sortiePrevue: z.string().datetime({ offset: true }).nullish(), motif: z.string().trim().max(255).nullish() })
+      .nullish(),
     tension: z.string().trim().regex(/^\d{2,3}\/\d{2,3}$/, "Format attendu : 120/80").nullish(),
     poidsKg: z.number().positive().max(400).nullish(),
     pouls: z.number().int().min(20).max(250).nullish(),
@@ -63,6 +67,7 @@ export async function signerConsultation(requete: Request, reponse: Response) {
       EVENEMENTS.CAISSE_MODIFIEE,
       EVENEMENTS.RENDEZ_VOUS_MODIFIE,
       EVENEMENTS.SUIVIS_MODIFIES,
+      EVENEMENTS.HOSPITALISATIONS_MODIFIEES,
     ],
     { passageId },
   );

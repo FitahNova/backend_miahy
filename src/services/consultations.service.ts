@@ -1,3 +1,5 @@
+import { dureeHospitalisation } from "../utils/hospitalisation.js";
+import { admettreSiHospitalisation } from "./hospitalisations.service.js";
 import { prisma } from "../config/prisma.js";
 import { OrigineSuivi, Role, StatutPassage } from "../generated/prisma/client.js";
 import type { Prisma } from "../generated/prisma/client.js";
@@ -25,6 +27,8 @@ export interface DonneesConsultation {
   actes?: number[];
   /** Analyses prescrites (identifiants du catalogue) : facturées à la signature, prix du catalogue. */
   analyses?: number[];
+  /** Acte d'hospitalisation parmi les actes : sortie choisie (ISO) et motif ; null pour effacer. */
+  hospitalisation?: HospitalisationBrouillon | null;
   tension?: string | null;
   poidsKg?: number | null;
   pouls?: number | null;
@@ -57,6 +61,18 @@ function verifierAccesAuPassage(passage: { praticienId: number | null }, utilisa
 interface Brouillon {
   actes?: number[];
   analyses?: number[];
+  hospitalisation?: HospitalisationBrouillon | null;
+}
+
+/** Hospitalisation prévue dans la fiche (acte « Hospitalisation courte ») : sortie choisie et motif. */
+type HospitalisationBrouillon = {
+  sortiePrevue?: string | null;
+  motif?: string | null;
+};
+
+export function lireHospitalisation(brouillon: Prisma.JsonValue | null | undefined): HospitalisationBrouillon | null {
+  const valeur = (brouillon as Brouillon | null)?.hospitalisation;
+  return valeur && typeof valeur === "object" ? { sortiePrevue: valeur.sortiePrevue ?? null, motif: valeur.motif ?? null } : null;
 }
 
 export function lireActes(brouillon: Prisma.JsonValue | null | undefined): number[] {
@@ -125,7 +141,7 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
     prisma.service.findMany({
       where: { actif: true },
       orderBy: { id: "asc" },
-      select: { id: true, nom: true, prix: true, categorie: { select: { nom: true } } },
+      select: { id: true, nom: true, prix: true, dureeHeures: true, categorie: { select: { nom: true } } },
     }),
     prochainRendezVousDuPatient(passage.patient.id),
     lireParametresTarification(),
@@ -160,15 +176,22 @@ export async function obtenirConsultationDuPassage(passageId: number, utilisateu
   const analysesEnregistrees = consultation ? lireAnalyses(consultation.brouillon).filter((id) => prescriptibles.has(id)) : [];
 
   return {
-    consultation: consultation && { ...consultation, actes, analyses: analysesEnregistrees },
+    consultation: consultation && {
+      ...consultation,
+      actes,
+      analyses: analysesEnregistrees,
+      hospitalisation: lireHospitalisation(consultation.brouillon),
+    },
     contexte: {
       motif: passage.motif,
       patient: passage.patient,
       dernieresVisites: visites.map(({ passage: visite, ...reste }) => ({ ...reste, praticien: visite.praticien })),
       prochainRendezVous,
       // Prix que paierait ce patient si l'acte était facturé maintenant (le prix réel est fixé à la signature).
-      services: services.map((service) => ({
+      services: services.map(({ dureeHeures, ...service }) => ({
         ...service,
+        // Acte d'hospitalisation courte : sa durée en heures ; null pour les autres actes.
+        dureeHospitalisation: dureeHospitalisation({ ...service, dureeHeures }),
         tarif:
           service.prix === null
             ? null
@@ -201,15 +224,22 @@ export async function enregistrerConsultationDuPassage(
     verifierMotifGrossesse(donnees.motif, passage.patient);
     verifierMotifGrossesse(donnees.suiviMotif, passage.patient);
 
-    const { motif, actes, analyses, ...constantes } = donnees;
+    const { motif, actes, analyses, hospitalisation, ...constantes } = donnees;
     if (actes) {
       // Les actes viennent du catalogue de la Direction (Paramètres → Services) : actifs et tarifés seulement.
-      const services = await transaction.service.findMany({ where: { id: { in: actes } }, select: { nom: true, actif: true, prix: true } });
+      const services = await transaction.service.findMany({
+        where: { id: { in: actes } },
+        select: { nom: true, actif: true, prix: true, dureeHeures: true, categorie: { select: { nom: true } } },
+      });
       if (services.length !== new Set(actes).size || services.some((service) => !service.actif)) {
         throw new ErreurHttp(400, "SERVICE_INACTIF");
       }
       const aFixer = services.find((service) => service.prix === null);
       if (aFixer) throw new ErreurHttp(409, "PRIX_SERVICE_A_FIXER", { service: aFixer.nom });
+      // Une seule formule d'hospitalisation : un séjour plus long se fait par « Prolonger ».
+      if (services.filter((service) => dureeHospitalisation(service) !== null).length > 1) {
+        throw new ErreurHttp(400, "HOSPITALISATION_UNE_FORMULE");
+      }
     }
     if (analyses && analyses.length > 0) {
       // Analyses du catalogue de la Direction : actives et tarifées seulement.
@@ -225,11 +255,12 @@ export async function enregistrerConsultationDuPassage(
     }
     // Le brouillon garde actes et analyses : on complète ce qui n'est pas envoyé avec la valeur déjà enregistrée.
     let brouillon: Brouillon | undefined;
-    if (actes !== undefined || analyses !== undefined) {
+    if (actes !== undefined || analyses !== undefined || hospitalisation !== undefined) {
       const actuelle = await transaction.consultation.findUnique({ where: { passageId }, select: { brouillon: true } });
       brouillon = {
         actes: actes ?? lireActes(actuelle?.brouillon),
         analyses: analyses ?? lireAnalyses(actuelle?.brouillon),
+        hospitalisation: hospitalisation === undefined ? lireHospitalisation(actuelle?.brouillon) : hospitalisation,
       };
     }
     const data = { ...constantes, ...(brouillon ? { brouillon: { ...brouillon } } : {}) };
@@ -258,7 +289,12 @@ export async function enregistrerConsultationDuPassage(
       entiteId: passageId,
     });
 
-    return { ...resultat, actes: lireActes(resultat.brouillon), analyses: lireAnalyses(resultat.brouillon) };
+    return {
+      ...resultat,
+      actes: lireActes(resultat.brouillon),
+      analyses: lireAnalyses(resultat.brouillon),
+      hospitalisation: lireHospitalisation(resultat.brouillon),
+    };
   }, OPTIONS_TRANSACTION);
 }
 
@@ -302,6 +338,15 @@ export async function signerEtTerminerConsultation(passageId: number, utilisateu
       actes.map((serviceId) => ({ serviceId, quantite: 1 })),
       analyses,
     );
+    // Acte « Hospitalisation courte » : le séjour commence (menu Hospitalisations).
+    const hospitalisation = lireHospitalisation(existante.brouillon);
+    await admettreSiHospitalisation(transaction, {
+      passageId,
+      actes,
+      sortieChoisie: hospitalisation?.sortiePrevue,
+      motif: hospitalisation?.motif,
+      auteurId: utilisateur.id,
+    });
 
     // « Ce patient doit-il être revu ? » Oui : rendez-vous avec le signataire, et un suivi pour le relancer
     // s'il ne vient pas (R052, R121).

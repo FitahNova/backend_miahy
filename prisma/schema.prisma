@@ -96,6 +96,8 @@ model Utilisateur {
   contactsSuivi       ContactSuivi[]
   versementsPartenaires VersementPartenaire[]
   demandesMedicament  DemandeMedicament[] @relation("DemandesMedicament")
+  hospitalisationsAdmises Hospitalisation[] @relation("HospitalisationsAdmises")
+  evenementsHospitalisation EvenementHospitalisation[]
   demandesMedicamentTraitees DemandeMedicament[] @relation("DemandesMedicamentTraitees")
 
   @@map("utilisateur")
@@ -209,6 +211,7 @@ model Passage {
   // saisie par la secrétaire, puis remise du résultat au patient.
   dateRetourResultat DateTime? @map("date_retour_resultat") @db.Date
   resultatRemisLe    DateTime? @map("resultat_remis_le") @db.Timestamptz(6)
+  hospitalisation    Hospitalisation?
 
   @@index([statut])
   @@map("passage")
@@ -490,6 +493,40 @@ model DemandeMedicament {
   @@map("demande_medicament")
 }
 
+// Hospitalisation courte : créée à la signature d'une consultation qui contient un acte « Hospitalisation courte ».
+// Le soignant prolonge (un acte de plus sur la facture) ou fait sortir le patient ; la secrétaire suit la liste.
+model Hospitalisation {
+  id           Int          @id @default(autoincrement())
+  passageId    Int          @unique @map("passage_id")
+  passage      Passage      @relation(fields: [passageId], references: [id])
+  admisParId   Int          @map("admis_par_id")
+  admisPar     Utilisateur  @relation("HospitalisationsAdmises", fields: [admisParId], references: [id])
+  motif        String?      @db.VarChar(255)
+  arrivee      DateTime     @db.Timestamptz(6)
+  sortiePrevue DateTime     @map("sortie_prevue") @db.Timestamptz(6)
+  // Vide tant que le patient est hospitalisé.
+  sortieLe     DateTime?    @map("sortie_le") @db.Timestamptz(6)
+  evenements   EvenementHospitalisation[]
+
+  @@index([sortieLe])
+  @@map("hospitalisation")
+}
+
+// Historique du séjour : admission, prolongations (avec leur motif), sortie, avec l'auteur et l'heure.
+model EvenementHospitalisation {
+  id                Int             @id @default(autoincrement())
+  hospitalisationId Int             @map("hospitalisation_id")
+  hospitalisation   Hospitalisation @relation(fields: [hospitalisationId], references: [id])
+  type              String          @db.VarChar(20)
+  texte             String          @db.VarChar(255)
+  auteurId          Int             @map("auteur_id")
+  auteur            Utilisateur     @relation(fields: [auteurId], references: [id])
+  creeLe            DateTime        @default(now()) @map("cree_le") @db.Timestamptz(6)
+
+  @@index([hospitalisationId])
+  @@map("evenement_hospitalisation")
+}
+
 model Fournisseur {
   id                 Int                 @id @default(autoincrement())
   nom                String              @db.VarChar(150)
@@ -520,6 +557,8 @@ model Service {
   categorieId Int?                 @map("categorie_id")
   categorie   CategoriePrestation? @relation(fields: [categorieId], references: [id])
   instruction String?              @db.VarChar(500)
+  // Acte d'hospitalisation courte : durée en heures (6, 12, 24, 48). Vide : lue dans le nom de l'acte.
+  dureeHeures Int?                 @map("duree_heures") @db.SmallInt
   lignes LigneFacture[]
   partenairesCouvrant Partenaire[] @relation("PartenaireServices")
 

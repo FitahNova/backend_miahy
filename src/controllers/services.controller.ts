@@ -19,6 +19,8 @@ const schemaCreation = z.object({
   prix: z.number().int().nonnegative().nullish(),
   categorieId: z.number().int().positive().nullish(),
   instruction,
+  // Hospitalisation courte : durée en heures (vide pour les autres actes).
+  dureeHeures: z.number().int().min(1).max(720).nullish(),
 });
 
 const schemaModification = z.object({
@@ -27,6 +29,7 @@ const schemaModification = z.object({
   actif: z.boolean().optional(),
   categorieId: z.number().int().positive().nullable().optional(),
   instruction,
+  dureeHeures: z.number().int().min(1).max(720).nullable().optional(),
 });
 
 // Paramètres de tarification : pourcentages entiers de 0 à 500, heures « HH:mm », ouverture avant le soir.

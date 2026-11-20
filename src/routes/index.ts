@@ -21,6 +21,7 @@ import routeurCharges from "./charges.routes.js";
 import routeurAudit from "./audit.routes.js";
 import routeurAnalyses from "./analyses.routes.js";
 import routeurResultatsAnalyses from "./resultatsAnalyses.routes.js";
+import routeurHospitalisations from "./hospitalisations.routes.js";
 
 const routeur = Router();
 
@@ -43,6 +44,7 @@ routeur.use("/partenaires", routeurPartenaires);
 routeur.use("/tableau-de-bord", routeurTableauDeBord);
 routeur.use("/rendez-vous", routeurRendezVous);
 routeur.use("/suivis", routeurSuivis);
+routeur.use("/hospitalisations", routeurHospitalisations);
 routeur.use("/charges", routeurCharges);
 routeur.use("/audit", routeurAudit);
 routeur.use("/analyses", routeurAnalyses);

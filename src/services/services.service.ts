@@ -12,6 +12,7 @@ const selectionService = {
   prix: true,
   actif: true,
   instruction: true,
+  dureeHeures: true,
   categorie: { select: { id: true, nom: true } },
 } as const;
 
