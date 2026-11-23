@@ -50,8 +50,6 @@ export function fermerFluxDuCompte(utilisateurId: number) {
   }
 }
 
-// À appeler APRÈS la réussite d'une opération (donc hors transaction).
-// Plusieurs événements peuvent partir pour une même action (ex. délivrance : file, pharmacie, caisse, stock).
 export function diffuser(evenements: Evenement | Evenement[], donnees: Record<string, number | string> = {}) {
   const liste = Array.isArray(evenements) ? evenements : [evenements];
   const corps = JSON.stringify(donnees);
