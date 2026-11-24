@@ -28,6 +28,8 @@ export async function obtenirDonneesOrdonnance(passageId: number, utilisateurId:
       patient: {
         select: { id: true, numeroDossier: true, nom: true, prenom: true, sexe: true, dateNaissance: true, allergies: true },
       },
+      // Hospitalisé : arrivée et sortie (prévue ou réelle) sur le papier remis au patient.
+      hospitalisation: { select: { arrivee: true, sortiePrevue: true, sortieLe: true, motif: true } },
       consultation: {
         select: {
           signeeLe: true,
@@ -98,6 +100,7 @@ export async function obtenirDonneesOrdonnance(passageId: number, utilisateurId:
       actes: actes.map((acte) => acte.nom),
     },
     prochainRendezVous,
+    hospitalisation: passage.hospitalisation,
     // Médicament hors stock : le nom et la forme saisis par le praticien.
     lignes: (passage.ordonnance?.lignes ?? []).map(({ libelle, forme, medicament, ...ligne }) => ({
       ...ligne,
