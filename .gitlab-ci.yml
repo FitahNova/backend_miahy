@@ -12,7 +12,7 @@ stages:
   - deploy
 
 default:
-  image: node:22-alpine
+  image: node:22-bookworm-slim
   cache:
     key:
       files: [package-lock.json]
@@ -39,7 +39,7 @@ build:
   stage: build
   script:
     - npm ci || npm ci || npm ci
-    - npm run build --if-present
+    - npm run build --if-present || npm run build --if-present || npm run build --if-present
 
 test_unit:
   stage: test
@@ -51,7 +51,7 @@ test_unit:
     GMAIL_APP_PASSWORD: "factice"
   script:
     - npm ci || npm ci || npm ci
-    - node_modules/.bin/prisma generate --config prisma7.config.ts
+    - node_modules/.bin/prisma generate --config prisma7.config.ts || node_modules/.bin/prisma generate --config prisma7.config.ts || node_modules/.bin/prisma generate --config prisma7.config.ts
     - npm run test:unit
 
 test_integration:
@@ -66,7 +66,7 @@ test_integration:
     DATABASE_URL_TEST: "postgresql://postgres:ci@db:5432/ci"
   script:
     - npm ci || npm ci || npm ci
-    - node_modules/.bin/prisma generate --config prisma7.config.ts
+    - node_modules/.bin/prisma generate --config prisma7.config.ts || node_modules/.bin/prisma generate --config prisma7.config.ts || node_modules/.bin/prisma generate --config prisma7.config.ts
     - npm run test:integration
 
 test_security:
@@ -77,7 +77,7 @@ test_security:
     JWT_SECRET: "000000000000000000000000000000000000000000000000"
   script:
     - npm ci || npm ci || npm ci
-    - node_modules/.bin/prisma generate --config prisma7.config.ts
+    - node_modules/.bin/prisma generate --config prisma7.config.ts || node_modules/.bin/prisma generate --config prisma7.config.ts || node_modules/.bin/prisma generate --config prisma7.config.ts
     - npm run test:security
 
 secret_detection:

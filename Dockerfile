@@ -1,4 +1,4 @@
-FROM node:22-alpine AS deps
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
@@ -8,12 +8,12 @@ COPY prisma ./prisma
 COPY prisma7.config.ts ./
 RUN node_modules/.bin/prisma generate --config prisma7.config.ts
 
-FROM node:22-alpine
-RUN apk upgrade --no-cache \
- && apk add --no-cache tini openssl \
+FROM node:22-bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tini openssl \
+ && rm -rf /var/lib/apt/lists/* \
  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
-           /usr/local/lib/node_modules/corepack /usr/local/bin/corepack \
-           /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
+ && corepack disable || true
 
 WORKDIR /app
 ENV NODE_ENV=production PORT=4000
@@ -26,5 +26,5 @@ COPY --from=prisma-client /app/src/generated ./src/generated
 
 USER node
 EXPOSE 4000
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "--import", "tsx", "src/index.ts"]
