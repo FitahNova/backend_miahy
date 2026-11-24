@@ -1,3 +1,4 @@
+import { cloturerSejoursEchus } from "./hospitalisations.service.js";
 import { LIGNES_DU_STOCK } from "../utils/lignesDuStock.js";
 import { prisma } from "../config/prisma.js";
 import { SEUIL_ATTENTE_LONGUE_MINUTES, SOIGNANTS } from "../config/constants.js";
@@ -118,6 +119,7 @@ function lirePassageComplet(identifiant: number) {
 }
 
 export async function listerPassagesDeLaFile(statuts: StatutPassage[], utilisateur: { id: number; role: Role }) {
+  await cloturerSejoursEchus();
   const passages = await prisma.passage.findMany({
     where: {
       statut: { in: statuts },

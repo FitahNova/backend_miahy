@@ -1,3 +1,4 @@
+import { cloturerSejoursEchus } from "./hospitalisations.service.js";
 import bcrypt from "bcryptjs";
 import { prisma } from "../config/prisma.js";
 import { ModePaiement, StatutFacture, type Prisma } from "../generated/prisma/client.js";
@@ -52,6 +53,7 @@ export async function exigerJourneeOuverte(db: ClientLecture) {
 // ---------- Factures à encaisser ----------
 
 export async function listerFacturesEnAttenteDePaiement() {
+  await cloturerSejoursEchus();
   const factures = await prisma.facture.findMany({
     where: { statut: { in: STATUTS_A_ENCAISSER } },
     orderBy: { id: "asc" },

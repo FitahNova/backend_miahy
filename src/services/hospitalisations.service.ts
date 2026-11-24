@@ -10,6 +10,8 @@ import { creerFactureComplementaire, recalculerStatutsDuPassage } from "./factur
 import { lireParametresTarification } from "./tarification.service.js";
 
 const LIMITE_SORTIS = 100;
+/** Rappel aux soignants : sortie dans moins d'une heure (prolonger si besoin). */
+const RAPPEL_SORTIE_MS = 60 * 60 * 1000;
 
 const CIVILITES: Record<string, string> = { DR: "Dr", MME: "Mme", M: "M." };
 const libellePersonne = (personne: { civilite: string | null; nom: string; prenom: string | null }) =>
@@ -98,8 +100,30 @@ const versVue = (hospitalisation: HospitalisationLue) => ({
   })),
 });
 
+/**
+ * Sortie automatique (décision du 24/11/2026) : un séjour dont l'heure de sortie prévue est passée se termine à cette
+ * heure-là, sans action du soignant. Appelé avant chaque lecture ; l'événement est tracé au nom du soignant qui a admis.
+ */
+export async function cloturerSejoursEchus(maintenant = new Date()) {
+  const echus = await prisma.hospitalisation.findMany({
+    where: { sortieLe: null, sortiePrevue: { lte: maintenant } },
+    select: { id: true, sortiePrevue: true, admisParId: true },
+  });
+  for (const sejour of echus) {
+    await prisma.hospitalisation.updateMany({
+      where: { id: sejour.id, sortieLe: null },
+      data: { sortieLe: sejour.sortiePrevue },
+    });
+    await prisma.evenementHospitalisation.create({
+      data: { hospitalisationId: sejour.id, type: "SORTIE", texte: "Sortie automatique à l'heure prévue", auteurId: sejour.admisParId, creeLe: sejour.sortiePrevue },
+    });
+  }
+  return echus.length;
+}
+
 /** En cours (sortie prévue la plus proche d'abord) ou sortis (les plus récents d'abord). */
 export async function listerHospitalisations(etat: "en-cours" | "sortis") {
+  await cloturerSejoursEchus();
   const liste = await prisma.hospitalisation.findMany({
     where: { sortieLe: etat === "en-cours" ? null : { not: null } },
     select: selectionHospitalisation,
@@ -109,12 +133,16 @@ export async function listerHospitalisations(etat: "en-cours" | "sortis") {
   return liste.map(versVue);
 }
 
-/** Hospitalisations en cours dont la sortie prévue est passée (cloche). */
-export function compterSortiesDepassees(maintenant = new Date()) {
-  return prisma.hospitalisation.count({ where: { sortieLe: null, sortiePrevue: { lt: maintenant } } });
+/** Hospitalisations dont la sortie arrive dans moins d'une heure (cloche des soignants : prolonger si besoin). */
+export async function compterSortiesProches(maintenant = new Date()) {
+  await cloturerSejoursEchus(maintenant);
+  return prisma.hospitalisation.count({
+    where: { sortieLe: null, sortiePrevue: { gt: maintenant, lte: new Date(maintenant.getTime() + RAPPEL_SORTIE_MS) } },
+  });
 }
 
 async function lireEnCours(transaction: Prisma.TransactionClient, id: number) {
+  await cloturerSejoursEchus();
   const hospitalisation = await transaction.hospitalisation.findUnique({
     where: { id },
     select: { id: true, passageId: true, sortiePrevue: true, sortieLe: true, passage: { select: { patientId: true, statut: true } } },
@@ -194,14 +222,14 @@ export async function prolongerHospitalisation(id: number, donnees: { serviceId:
   }, OPTIONS_TRANSACTION);
 }
 
-/** Sortie du patient : le séjour se termine (la facture est encaissée à la caisse). */
+/** Sortie anticipée, avant l'heure prévue : le séjour se termine maintenant (la facture s'encaisse à la caisse). */
 export async function sortirHospitalisation(id: number, auteurId: number) {
   return prisma.$transaction(async (transaction) => {
     await lireEnCours(transaction, id);
     const sortieLe = new Date();
     await transaction.hospitalisation.update({
       where: { id },
-      data: { sortieLe, evenements: { create: { type: "SORTIE", texte: "Sortie", auteurId } } },
+      data: { sortieLe, evenements: { create: { type: "SORTIE", texte: "Sortie anticipée", auteurId } } },
     });
     await enregistrerAudit(transaction, {
       utilisateurId: auteurId,

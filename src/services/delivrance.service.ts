@@ -1,3 +1,4 @@
+import { cloturerSejoursEchus } from "./hospitalisations.service.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../config/prisma.js";
 import { StatutFacture, StatutPassage, TypeLigneFacture, TypeMouvement } from "../generated/prisma/client.js";
@@ -61,6 +62,7 @@ function estRetirable(
  * stock disponible, et factures ouvertes avec leurs lignes et montants.
  */
 export async function listerPassagesAuComptoir() {
+  await cloturerSejoursEchus();
   const passages = await prisma.passage.findMany({
     where: { statut: { in: STATUTS_PASSAGE_AU_COMPTOIR } },
     orderBy: { heureArrivee: "asc" },
