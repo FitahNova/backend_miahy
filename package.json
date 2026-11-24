@@ -14,6 +14,7 @@
     "test": "tsx --test \"src/**/*.test.ts\"",
     "test:unit": "tsx --test \"src/**/*.test.ts\"",
     "test:integration": "tsx --test \"src/**/*.integration.test.ts\"",
+    "test:security": "tsx --test \"src/**/*.security.test.ts\"",
     "lint": "eslint .",
     "typecheck": "prisma generate --config prisma7.config.ts && tsc --noEmit"
   },
