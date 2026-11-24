@@ -4,9 +4,9 @@ import { exigerConnexion, exigerRole } from "../middleware/auth.js";
 import { gererAsync } from "../utils/asyncHandler.js";
 import { obtenirFormules, obtenirHospitalisations, prolonger, sortir } from "../controllers/hospitalisations.controller.js";
 
-// Les soignants hospitalisent (à la consultation), prolongent et font sortir ; la secrétaire et la Direction suivent.
+// Les soignants hospitalisent (à la consultation), prolongent et font sortir ; la secrétaire suit la liste.
 const SOIGNANTS = [Role.MEDECIN_CHEF, Role.MEDECIN, Role.SAGE_FEMME];
-const LECTURE = [...SOIGNANTS, Role.SECRETAIRE, Role.DIRECTION];
+const LECTURE = [...SOIGNANTS, Role.SECRETAIRE];
 
 const routeur = Router();
 routeur.use(exigerConnexion);
