@@ -9,6 +9,8 @@ import { JOURS_DEMANDE, regrouperDemandes, type MedicamentDemande } from "../uti
 import { enregistrerAudit } from "./audit.service.js";
 
 const CODE_VIOLATION_UNIQUE = "P2002";
+/** Seuil d'alerte d'un nouveau médicament (en unités de vente), modifiable ensuite par la Direction. */
+export const SEUIL_ALERTE_PAR_DEFAUT = 50;
 const LIMITE_RECHERCHE = 20;
 
 // Liste fermée des formes.
@@ -319,7 +321,7 @@ export async function creerMedicamentRapide(nom: string, forme: string, auteurId
         categorieId: categorie.id,
         prixAchat: 0,
         prixVente: 0,
-        seuilAlerte: 0,
+        seuilAlerte: SEUIL_ALERTE_PAR_DEFAUT,
         contenuConditionnement: contenuSelonForme(forme, contenu),
         actif: true,
       },
@@ -462,6 +464,14 @@ export async function modifierMedicament(id: number, donnees: DonneesModificatio
           nouveauPrixVente: medicament.prixVente,
         },
       });
+    }
+
+    // Seuil d'alerte : le même pour toutes les lignes de prix du produit.
+    if (donnees.seuilAlerte !== undefined) {
+      const autres = await lignesDuProduit(transaction, { nom: medicament.nom, forme: medicament.forme, categorieId: medicament.categorie.id }, id);
+      if (autres.length > 0) {
+        await transaction.medicament.updateMany({ where: { id: { in: autres.map((ligne) => ligne.id) } }, data: { seuilAlerte: medicament.seuilAlerte } });
+      }
     }
 
     // Consignes : les mêmes pour toutes les lignes de prix du produit ; tracées (qui a écrit quoi).
